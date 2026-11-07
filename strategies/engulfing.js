@@ -1,0 +1,1 @@
+export const name="Engulfing Pattern";export default c=>{const a=c.candles.at(-2),b=c.candles.at(-1);return b.close>a.open&&b.open<a.close&&a.close<a.open?"BUY":b.close<a.open&&b.open>a.close&&a.close>a.open?"SELL":"WAIT"};
