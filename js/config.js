@@ -1,0 +1,1 @@
+export const CONFIG={symbol:"BTCUSDT",threshold:4,storageKey:"btcScalpJournal",api:"https://api.binance.com/api/v3/klines",stream:"wss://stream.binance.com:9443/ws"};
