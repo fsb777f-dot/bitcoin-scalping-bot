@@ -1,0 +1,1 @@
+export const name="Support / Resistance";export default c=>c.last<=c.low*1.001?"BUY":c.last>=c.high*.999?"SELL":"WAIT";
