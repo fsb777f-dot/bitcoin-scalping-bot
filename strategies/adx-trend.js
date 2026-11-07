@@ -1,0 +1,1 @@
+export const name="ADX Trend Strength";export default c=>c.adx>20?(c.plusDI>c.minusDI?"BUY":c.minusDI>c.plusDI?"SELL":"WAIT"):"WAIT";
