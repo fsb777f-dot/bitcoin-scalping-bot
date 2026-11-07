@@ -1,0 +1,1 @@
+export const name="RSI 14";export default c=>c.rsi<35?"BUY":c.rsi>65?"SELL":"WAIT";
