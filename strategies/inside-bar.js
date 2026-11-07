@@ -1,0 +1,1 @@
+export const name="Inside Bar Breakout";export default c=>{const a=c.candles.at(-2),b=c.candles.at(-1);return b.high<a.high&&b.low>a.low?(b.close>b.open?"BUY":b.close<b.open?"SELL":"WAIT"): "WAIT"};
