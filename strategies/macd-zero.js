@@ -1,0 +1,1 @@
+export const name="MACD Zero Line";export default c=>c.macd>0?"BUY":c.macd<0?"SELL":"WAIT";
