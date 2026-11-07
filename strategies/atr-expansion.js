@@ -1,0 +1,1 @@
+export const name="ATR Expansion";export default c=>{const w=c.candles.slice(-15,-1),avg=w.reduce((s,x)=>s+(x.high-x.low),0)/Math.max(1,w.length),x=c.candles.at(-1);return x.high-x.low>avg*1.5?(x.close>x.open?"BUY":x.close<x.open?"SELL":"WAIT"):"WAIT"};
