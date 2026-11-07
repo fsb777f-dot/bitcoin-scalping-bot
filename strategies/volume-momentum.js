@@ -1,0 +1,1 @@
+export const name="Volume Momentum";export default c=>c.candles.at(-1).volume>c.volumeAverage*1.2&&c.last>c.prev.close?"BUY":c.candles.at(-1).volume>c.volumeAverage*1.2&&c.last<c.prev.close?"SELL":"WAIT";
