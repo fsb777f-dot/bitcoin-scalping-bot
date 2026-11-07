@@ -1,0 +1,1 @@
+export const name="EMA 9/21";export default c=>c.e9>c.e21?"BUY":c.e9<c.e21?"SELL":"WAIT";
