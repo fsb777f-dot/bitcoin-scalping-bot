@@ -1,0 +1,1 @@
+export const name="ROC Momentum";export default c=>{if(c.c.length<11)return"WAIT";const v=(c.last/c.c.at(-11)-1)*100;return v>.15?"BUY":v<-.15?"SELL":"WAIT"};
