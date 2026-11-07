@@ -1,0 +1,1 @@
+export const name="Pivot Points";export default c=>{const p=c.candles.at(-2),pivot=(p.high+p.low+p.close)/3;return c.last>pivot*1.001?"BUY":c.last<pivot*.999?"SELL":"WAIT"};
