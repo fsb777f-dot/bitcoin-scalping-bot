@@ -1,0 +1,1 @@
+export const name="Bollinger Bands";export default c=>c.last<c.average-2*c.sd?"BUY":c.last>c.average+2*c.sd?"SELL":"WAIT";
