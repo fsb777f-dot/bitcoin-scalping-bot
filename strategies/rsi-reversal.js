@@ -1,0 +1,1 @@
+export const name="RSI Reversal";export default c=>c.rsi<30?"BUY":c.rsi>70?"SELL":"WAIT";
