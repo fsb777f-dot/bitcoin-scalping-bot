@@ -1,0 +1,1 @@
+export const name="VWAP";export default c=>c.last>c.average?"BUY":c.last<c.average?"SELL":"WAIT";
