@@ -1,0 +1,1 @@
+export const name="EMA 20/50";export default c=>{const a=c.c.slice(-20).reduce((s,x)=>s+x,0)/20,b=c.c.slice(-50).reduce((s,x)=>s+x,0)/50;return a>b?"BUY":a<b?"SELL":"WAIT"};
