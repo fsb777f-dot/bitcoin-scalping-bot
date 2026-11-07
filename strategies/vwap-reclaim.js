@@ -1,0 +1,1 @@
+export const name="VWAP Reclaim";export default c=>{const p=c.prev.close;return p<c.vwap&&c.last>c.vwap?"BUY":p>c.vwap&&c.last<c.vwap?"SELL":"WAIT"};
