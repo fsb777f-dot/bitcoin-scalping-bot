@@ -1,0 +1,1 @@
+export const name="Volume Spike";export default c=>{const x=c.candles.at(-1);return x.volume>c.volumeAverage*1.8&&x.close>x.open?"BUY":x.volume>c.volumeAverage*1.8&&x.close<x.open?"SELL":"WAIT"};
