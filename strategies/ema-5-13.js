@@ -1,0 +1,1 @@
+export const name="EMA 5/13";export default c=>c.c.length>=13?(c.c.at(-1)>c.c.at(-13)?"BUY":c.c.at(-1)<c.c.at(-13)?"SELL":"WAIT"):"WAIT";
