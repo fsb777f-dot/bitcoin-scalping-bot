@@ -1,0 +1,1 @@
+export const name="Price Action";export default c=>c.last>c.prev.high?"BUY":c.last<c.prev.low?"SELL":"WAIT";
