@@ -1,0 +1,1 @@
+import{macd}from"../js/indicators.js";export const name="MACD";export default c=>c.macd>0&&c.macd>macd(c.c.slice(0,-1))?"BUY":c.macd<0&&c.macd<macd(c.c.slice(0,-1))?"SELL":"WAIT";
