@@ -1,0 +1,1 @@
+export const name="RSI Trend";export default c=>c.rsi>55?"BUY":c.rsi<45?"SELL":"WAIT";
