@@ -1,0 +1,1 @@
+export const name="Bollinger Breakout";export default c=>{const m=c.average,u=m+2*c.sd,l=m-2*c.sd;return c.last>u?"BUY":c.last<l?"SELL":"WAIT"};
