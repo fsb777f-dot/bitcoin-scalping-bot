@@ -1,0 +1,1 @@
+export const name="Momentum 10";export default c=>{const d=c.last-c.c.at(-11);return d>0?"BUY":d<0?"SELL":"WAIT"};
