@@ -1,0 +1,1 @@
+export const name="Stochastic";export default c=>c.rsi<25?"BUY":c.rsi>75?"SELL":"WAIT";
