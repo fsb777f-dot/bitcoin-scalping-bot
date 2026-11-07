@@ -1,1 +1,1 @@
-export const name="EMA 20/50";export default c=>{const a=c.c.slice(-20).reduce((s,x)=>s+x,0)/20,b=c.c.slice(-50).reduce((s,x)=>s+x,0)/50;return a>b?"BUY":a<b?"SELL":"WAIT"};
+export const name="EMA 20/50";export default c=>{if(c.c.length<50)return"WAIT";const calc=n=>{let v=c.c.slice(0,n).reduce((s,x)=>s+x,0)/n,k=2/(n+1);for(let i=n;i<c.c.length;i++)v=c.c[i]*k+v*(1-k);return v};const a=calc(20),b=calc(50);return a>b?"BUY":a<b?"SELL":"WAIT"};
