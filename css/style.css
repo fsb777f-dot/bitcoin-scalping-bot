@@ -34,3 +34,12 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 
 /* Strategy performance in the journal */
 .subsection-title{font-size:13px;margin:16px 0 9px}.strategy-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.strategy-stat{background:#0c1320;border:1px solid var(--line);border-radius:10px;padding:10px;min-width:0}.strategy-stat-head,.strategy-stat-detail{display:flex;justify-content:space-between;gap:6px;align-items:center}.strategy-stat-head b{font-size:11px;overflow-wrap:anywhere}.strategy-stat-head span{font-size:12px;font-weight:800;color:var(--yellow);white-space:nowrap}.strategy-stat-detail{justify-content:flex-start;flex-wrap:wrap;margin-top:8px;color:var(--muted);font-size:10px}@media(max-width:380px){.strategy-stats{grid-template-columns:1fr}}
+
+/* Individual strategy controls */
+.strategy{min-width:0;flex-wrap:wrap}
+.strategy-name{flex:1;min-width:90px}
+.strategy-toggle{padding:6px 8px;font-size:10px;white-space:nowrap;cursor:pointer}
+.strategy-disabled{opacity:.62}
+.strategy-disabled .strategy-name{text-decoration:line-through;color:var(--muted)}
+.strategy .tag{min-width:34px;text-align:center}
+@media(max-width:600px){.strategies{grid-template-columns:1fr}.strategy{gap:7px}.strategy-name{font-size:12px}.strategy-toggle{margin-left:auto}}
