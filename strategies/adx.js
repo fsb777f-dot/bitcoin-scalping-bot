@@ -1,0 +1,1 @@
+export const name="ADX + DMI";export default c=>{if(c.adx<20||c.adx<c.adxPrevious)return"WAIT";if(c.plusDI>c.minusDI)return"BUY";if(c.minusDI>c.plusDI)return"SELL";return"WAIT"};
