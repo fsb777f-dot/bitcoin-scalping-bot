@@ -1,0 +1,1 @@
+export const name="Pin Bar";export default c=>{const x=c.candles.at(-1),body=Math.abs(x.close-x.open),lower=Math.min(x.open,x.close)-x.low,upper=x.high-Math.max(x.open,x.close);return lower>body*2&&upper<body?"BUY":upper>body*2&&lower<body?"SELL":"WAIT"};
