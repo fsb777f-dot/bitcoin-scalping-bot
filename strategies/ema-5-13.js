@@ -1,1 +1,1 @@
-export const name="EMA 5/13";export default c=>c.c.length>=13?(c.c.at(-1)>c.c.at(-13)?"BUY":c.c.at(-1)<c.c.at(-13)?"SELL":"WAIT"):"WAIT";
+export const name="EMA 5/13";export default c=>{const calc=n=>{let v=c.c.slice(0,n).reduce((s,x)=>s+x,0)/n,k=2/(n+1);for(let i=n;i<c.c.length;i++)v=c.c[i]*k+v*(1-k);return v};if(c.c.length<13)return"WAIT";const a=calc(5),b=calc(13);return a>b?"BUY":a<b?"SELL":"WAIT"};
