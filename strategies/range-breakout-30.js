@@ -1,0 +1,1 @@
+export const name="30-Candle Breakout";export default c=>{const w=c.candles.slice(-31,-1),h=Math.max(...w.map(x=>x.high)),l=Math.min(...w.map(x=>x.low));return c.last>h?"BUY":c.last<l?"SELL":"WAIT"};
