@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#090d16"><title>Bitcoin Scalping Bot</title>
+<script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#090d16;--panel:#111827;--line:#243044;--muted:#91a0b7;--text:#eef3fb;--green:#20c997;--red:#ff647c;--yellow:#f6c85f;--blue:#70a7ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding-bottom:76px}
+header{padding:17px 16px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);position:sticky;top:0;background:#090d16ed;z-index:5;backdrop-filter:blur(12px)}
+.brand{font-weight:800;letter-spacing:.4px}.brand span{color:#f3b942}.sub{color:var(--muted);font-size:11px;margin-top:4px}
+.status{font-size:11px;color:var(--yellow);display:flex;gap:6px;align-items:center}.dot{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block}
+main{max-width:1100px;margin:auto;padding:14px;display:grid;gap:12px}.pricebox,.panel{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:14px}
+.pricehead{display:flex;justify-content:space-between;align-items:center}.symbol{font-weight:700;font-size:13px}.price{font-size:27px;font-weight:800;margin-top:7px;letter-spacing:-.7px}.change{font-size:12px;margin-left:8px}.muted{color:var(--muted)}.green{color:var(--green)}.red{color:var(--red)}.yellow{color:var(--yellow)}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}.metric{background:#0c1320;border-radius:10px;padding:9px}.metric small{display:block;color:var(--muted);font-size:10px}.metric b{display:block;margin-top:5px;font-size:13px}
+.sectiontitle{font-size:14px;font-weight:750;margin:0 0 12px;display:flex;justify-content:space-between;align-items:center}
+#chart{height:285px;width:100%}.charttools{display:flex;gap:6px}.chip,button{border:1px solid var(--line);background:#0c1320;color:var(--text);padding:8px 11px;border-radius:9px;font-size:12px}.chip.active{background:#20314d;border-color:#5476a8;color:#fff}
+.signalrow{display:flex;align-items:center;justify-content:space-between;gap:10px}.signalbig{font-size:23px;font-weight:850}.count{font-size:12px;color:var(--muted)}
+.levels{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}.level{background:#0c1320;padding:10px;border-radius:10px;min-width:0}.level small{display:block;color:var(--muted);font-size:10px}.level b{display:block;margin-top:5px;font-size:12px;overflow-wrap:anywhere}
+.strategies{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.strategy{display:flex;justify-content:space-between;align-items:center;padding:10px;background:#0c1320;border-radius:9px;gap:8px}.strategy span:first-child{font-size:12px}.tag{font-size:10px;font-weight:700}.journalwrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:580px;font-size:11px}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);white-space:nowrap}th{color:var(--muted);font-weight:600}.empty{text-align:center;color:var(--muted);padding:22px}
+.nav{position:fixed;bottom:0;left:0;right:0;background:#0b111dee;border-top:1px solid var(--line);display:flex;justify-content:center;gap:35px;padding:12px 8px calc(12px + env(safe-area-inset-bottom));z-index:8}.nav a{color:var(--muted);text-decoration:none;font-size:12px}.nav a.active{color:#fff}
+.notice{font-size:11px;line-height:1.5;color:var(--muted)}.btnrow{display:flex;gap:7px;align-items:center}.btnrow button{cursor:pointer}
+@media(min-width:760px){main{grid-template-columns:1.4fr 1fr}.wide{grid-column:1/-1}#chart{height:380px}.strategies{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style></head>
+<body>
+<header><div><div class="brand">₿ BITCOIN <span>SCALPING BOT</span></div><div class="sub">BTC/USDT · виртуальная торговля · 10 стратегий</div></div><div class="status" id="connection"><i class="dot"></i> Подключение…</div></header>
+<main>
+<section class="pricebox wide"><div class="pricehead"><div><div class="symbol">BITCOIN / USDT <span class="muted">· SPOT</span></div><div><span class="price" id="price">—</span><span class="change" id="priceChange">—</span></div></div><div class="muted" style="text-align:right;font-size:11px">Рынок<br><b style="color:var(--text)">24/7</b></div></div>
+<div class="metrics"><div class="metric"><small>Таймфрейм</small><b id="tfLabel">1 минута</b></div><div class="metric"><small>Источник</small><b>Binance public</b></div><div class="metric"><small>Режим</small><b class="green">DEMO</b></div></div></section>
+<section class="panel wide"><div class="sectiontitle">График BTC/USDT <div class="charttools"><button class="chip active" data-tf="1m">1m</button><button class="chip" data-tf="5m">5m</button></div></div><div id="chart"></div></section>
+<section class="panel"><div class="sectiontitle">Текущий сигнал <span class="muted" style="font-size:10px">Порог: 4 из 10</span></div><div class="signalrow"><div class="signalbig yellow" id="signal">WAIT</div><div class="count" id="matches">0 / 10 совпадений</div></div><div class="levels"><div class="level"><small>Вход</small><b id="entry">—</b></div><div class="level"><small>Stop Loss</small><b id="sl">—</b></div><div class="level"><small>Take Profit</small><b id="tp">—</b></div></div><p class="notice" id="signalNote">Ожидание подтверждения стратегий. Сигналы учебные, не являются финансовой рекомендацией.</p></section>
+<section class="panel"><div class="sectiontitle">Стратегии <span class="muted" style="font-size:10px">10 одновременно</span></div><div class="strategies" id="strategies"></div></section>
+<section class="panel wide"><div class="sectiontitle">Журнал виртуальных сделок <div class="btnrow"><span class="muted" id="tradeCount" style="font-size:11px">0 сделок</span><button id="clearJournal">Очистить</button></div></div><div class="journalwrap"><table><thead><tr><th>Время</th><th>Сторона</th><th>Вход</th><th>SL</th><th>TP</th><th>Выход</th><th>Результат</th><th>Статус</th></tr></thead><tbody id="journal"><tr><td colspan="8" class="empty">Пока нет сделок</td></tr></tbody></table></div><p class="notice">Журнал хранится в памяти этого браузера на данном устройстве. Сделки виртуальные: бот не отправляет ордера на биржу.</p></section>
+</main>
+<nav class="nav"><a class="active" href="#chart">Рынок</a><a href="#strategies">Стратегии</a><a href="#journal">Журнал</a></nav>
+<script>
+(()=>{
+const $=id=>document.getElementById(id), names=['EMA 9/21','RSI 14','MACD','VWAP','Bollinger Bands','Stochastic','Supertrend','Price Action','Support / Resistance','Volume Momentum'];
+let tf='1m', candles=[], price=null, chart, series, socket, lastSignalKey='', trades=JSON.parse(localStorage.getItem('btcScalpJournal')||'[]'), lastClose=null;
+const fmt=n=>Number.isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
+function setupChart(){if(!window.LightweightCharts){$('chart').innerHTML='<p class="notice">Не удалось загрузить библиотеку графика.</p>';return}
+chart=LightweightCharts.createChart($('chart'),{layout:{background:{color:'#111827'},textColor:'#91a0b7'},grid:{vertLines:{color:'#1d293b'},horzLines:{color:'#1d293b'}},rightPriceScale:{borderColor:'#243044'},timeScale:{borderColor:'#243044',timeVisible:true,secondsVisible:false},crosshair:{mode:1}});
+series=chart.addCandlestickSeries({upColor:'#20c997',downColor:'#ff647c',borderUpColor:'#20c997',borderDownColor:'#ff647c',wickUpColor:'#20c997',wickDownColor:'#ff647c'});new ResizeObserver(()=>chart.applyOptions({width:$('chart').clientWidth})).observe($('chart'))}
+function renderJournal(){ $('tradeCount').textContent=trades.length+' сделок';$('journal').innerHTML=trades.length?trades.slice().reverse().map(t=>'<tr><td>'+new Date(t.time).toLocaleString('ru-RU')+'</td><td class="'+(t.side==='BUY'?'green':'red')+'">'+t.side+'</td><td>'+fmt(t.entry)+'</td><td>'+fmt(t.sl)+'</td><td>'+fmt(t.tp)+'</td><td>'+fmt(t.exit)+'</td><td class="'+(t.pnl>=0?'green':'red')+'">'+(t.pnl==null?'—':(t.pnl>=0?'+':'')+fmt(t.pnl))+'</td><td>'+(t.status==='OPEN'?'ОТКРЫТА':t.result==='TP'?'TP':'SL')+'</td></tr>').join(''):'<tr><td colspan="8" class="empty">Пока нет сделок</td></tr>'; }
+function save(){localStorage.setItem('btcScalpJournal',JSON.stringify(trades));renderJournal()}
+function sma(a,n){return a.length<n?null:a.slice(-n).reduce((s,x)=>s+x,0)/n}
+function ema(a,n){if(a.length<n)return null;let e=a.slice(0,n).reduce((s,x)=>s+x,0)/n,k=2/(n+1);for(let i=n;i<a.length;i++)e=a[i]*k+e*(1-k);return e}
+function rsi(a,n=14){if(a.length<n+1)return 50;let up=0,dn=0;for(let i=a.length-n;i<a.length;i++){let d=a[i]-a[i-1];if(d>0)up+=d;else dn-=d}return dn===0?100:100-100/(1+up/dn)}
+function macd(a){return (ema(a,12)||0)-(ema(a,26)||0)}
+function calc(){if(candles.length<30)return;let c=candles.map(x=>x.close),v=candles.map(x=>x.volume),last=c.at(-1),prev=c.at(-2),e9=ema(c,9),e21=ema(c,21),rv=rsi(c),m=macd(c),avg=sma(c,20),sd=Math.sqrt(c.slice(-20).reduce((s,x)=>s+(x-avg)**2,0)/20),hi=Math.max(...candles.slice(-14).map(x=>x.high)),lo=Math.min(...candles.slice(-14).map(x=>x.low)),vol=sma(v,20)||0,volUp=v.at(-1)>vol*1.2;
+let signals=[
+e9>e21?'BUY':e9<e21?'SELL':'WAIT',
+rv<35?'BUY':rv>65?'SELL':'WAIT',
+m>0&&m>macd(c.slice(0,-1))?'BUY':m<0&&m<macd(c.slice(0,-1))?'SELL':'WAIT',
+last>avg?'BUY':last<avg?'SELL':'WAIT',
+last<avg-2*sd?'BUY':last>avg+2*sd?'SELL':'WAIT',
+rv<25?'BUY':rv>75?'SELL':'WAIT',
+last>e21&&prev.close>prev.open?'BUY':last<e21&&prev.close<prev.open?'SELL':'WAIT',
+last>prev.high?'BUY':last<prev.low?'SELL':'WAIT',
+last<=lo*1.001?'BUY':last>=hi*.999?'SELL':'WAIT',
+volUp&&last>prev.close?'BUY':volUp&&last<prev.close?'SELL':'WAIT'
+];
+$('strategies').innerHTML=names.map((n,i)=>'<div class="strategy"><span>'+n+'</span><b class="tag '+(signals[i]==='BUY'?'green':signals[i]==='SELL'?'red':'yellow')+'">'+signals[i]+'</b></div>').join('');
+let buys=signals.filter(x=>x==='BUY').length,sells=signals.filter(x=>x==='SELL').length,side=buys>=4&&buys>sells?'BUY':sells>=4&&sells>buys?'SELL':'WAIT',count=side==='BUY'?buys:side==='SELL'?sells:Math.max(buys,sells);
+$('signal').textContent=side;$('signal').className='signalbig '+(side==='BUY'?'green':side==='SELL'?'red':'yellow');$('matches').textContent=count+' / 10 совпадений';
+let atr=candles.slice(-14).reduce((s,x)=>s+(x.high-x.low),0)/14,sl=side==='BUY'?last-atr*1.2:side==='SELL'?last+atr*1.2:null,tp=side==='BUY'?last+atr*2.4:side==='SELL'?last-atr*2.4:null;
+$('entry').textContent=side==='WAIT'?'—':fmt(last);$('sl').textContent=sl?fmt(sl):'—';$('tp').textContent=tp?fmt(tp):'—';
+$('signalNote').textContent=side==='WAIT'?'Недостаточно согласованных сигналов для виртуального входа.':'Совпадений '+count+'/10. Расчётные уровни риска показаны для тестирования, не гарантия результата.';
+let key=tf+'-'+candles.at(-1).time+'-'+side;
+if(side!=='WAIT'&&key!==lastSignalKey){lastSignalKey=key;let exists=trades.some(t=>t.key===key);if(!exists){trades.push({key,time:Date.now(),side,entry:last,sl,tp,exit:null,pnl:null,status:'OPEN'});save()}}
+}
+function updatePrice(p){price=p;$('price').textContent=fmt(p);if(lastClose){let d=(p-lastClose)/lastClose*100;$('priceChange').textContent=(d>=0?'+':'')+d.toFixed(2)+'%';$('priceChange').className='change '+(d>=0?'green':'red')};trades.forEach(t=>{if(t.status!=='OPEN')return;let hit=t.side==='BUY'?(p<=t.sl?'SL':p>=t.tp?'TP':null):(p>=t.sl?'SL':p<=t.tp?'TP':null);if(hit){t.exit=hit==='SL'?t.sl:t.tp;t.pnl=t.side==='BUY'?t.exit-t.entry:t.entry-t.exit;t.status='CLOSED';t.result=hit;save()}})}
+async function load(){let interval=tf; $('tfLabel').textContent=interval==='1m'?'1 минута':'5 минут';try{let r=await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval='+interval+'&limit=300');if(!r.ok)throw Error('HTTP '+r.status);let data=await r.json();candles=data.map(k=>({time:k[0]/1000,open:+k[1],high:+k[2],low:+k[3],close:+k[4],volume:+k[5]}));series.setData(candles);chart.timeScale().fitContent();lastClose=candles.at(-1).close;updatePrice(lastClose);calc();$('connection').innerHTML='<i class="dot green"></i> Binance подключён';connect()}catch(e){$('connection').innerHTML='<i class="dot red"></i> Нет соединения';$('signalNote').textContent='Не удалось получить публичные котировки. Проверьте интернет и обновите страницу.'}}
+function connect(){if(socket)socket.close();socket=new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@kline_'+tf);socket.onmessage=e=>{let k=JSON.parse(e.data).k,c={time:k.t/1000,open:+k.o,high:+k.h,low:+k.l,close:+k.c,volume:+k.v};let i=candles.findIndex(x=>x.time===c.time);if(i>=0)candles[i]=c;else candles.push(c);series.update(c);updatePrice(c.close);if(k.x){lastClose=c.close;calc()}};socket.onclose=()=>{if(navigator.onLine)setTimeout(connect,4000)};socket.onerror=()=>socket.close()}
+document.querySelectorAll('[data-tf]').forEach(b=>b.onclick=()=>{if(tf===b.dataset.tf)return;tf=b.dataset.tf;document.querySelectorAll('[data-tf]').forEach(x=>x.classList.toggle('active',x===b));lastSignalKey='';if(socket)socket.close();load()});
+$('clearJournal').onclick=()=>{if(confirm('Удалить весь журнал виртуальных сделок на этом устройстве?')){trades=[];save()}};
+setupChart();renderJournal();load();
+})();
+</script></body></html>
