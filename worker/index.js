@@ -152,8 +152,82 @@ async function okxPrice() {
   if (!Number.isFinite(price) || price <= 0) throw new Error("OKX returned an invalid BTC-USDT price");
   return price;
 }
+async function krakenRequest(path) {
+  const response = await fetch("https://api.kraken.com" + path, {
+    headers: { "Accept": "application/json" },
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error("Kraken HTTP " + response.status + ": " + detail);
+  }
+  const data = await response.json();
+  if (Array.isArray(data.error) && data.error.length) {
+    throw new Error("Kraken API error: " + data.error.join(", "));
+  }
+  if (!data.result) throw new Error("Kraken returned an empty result");
+  return data.result;
+}
+async function krakenCandles(timeframe) {
+  const interval = timeframe === "5m" ? "5" : "1";
+  const result = await krakenRequest("/0/public/OHLC?pair=XBTUSD&interval=" + interval);
+  const key = Object.keys(result).find(k => k !== "last");
+  const rows = key ? result[key] : [];
+  // Kraken always includes the currently forming candle as the final row.
+  return rows.slice(0, -1).map(k => ({
+    time: Number(k[0]), open: +k[1], high: +k[2], low: +k[3],
+    close: +k[4], volume: +k[6]
+  }));
+}
+async function krakenPrice() {
+  const result = await krakenRequest("/0/public/Ticker?pair=XBTUSD");
+  const key = Object.keys(result)[0];
+  const price = Number(result[key]?.c?.[0]);
+  if (!Number.isFinite(price) || price <= 0) throw new Error("Kraken returned an invalid BTC/USD price");
+  return price;
+}
+async function coinbaseRequest(path) {
+  const response = await fetch("https://api.exchange.coinbase.com" + path, {
+    headers: { "Accept": "application/json", "User-Agent": "BitcoinScalpingBot/1.0" },
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error("Coinbase HTTP " + response.status + ": " + detail);
+  }
+  return response.json();
+}
+async function coinbaseCandles(timeframe) {
+  const granularity = timeframe === "5m" ? "300" : "60";
+  const rows = await coinbaseRequest("/products/BTC-USD/candles?granularity=" + granularity);
+  if (!Array.isArray(rows)) throw new Error("Coinbase returned invalid candle data");
+  return rows.slice().reverse().map(k => ({
+    time: Number(k[0]), open: +k[3], high: +k[2], low: +k[1],
+    close: +k[4], volume: +k[5]
+  }));
+}
+async function coinbasePrice() {
+  const data = await coinbaseRequest("/products/BTC-USD/ticker");
+  const price = Number(data.price);
+  if (!Number.isFinite(price) || price <= 0) throw new Error("Coinbase returned an invalid BTC/USD price");
+  return price;
+}
 async function getMarketData(timeframe) {
   const sources = [
+    {
+      name: "Kraken",
+      get: async () => {
+        const [candles, price] = await Promise.all([krakenCandles(timeframe), krakenPrice()]);
+        return { candles, price, source: "Kraken" };
+      }
+    },
+    {
+      name: "Coinbase",
+      get: async () => {
+        const [candles, price] = await Promise.all([coinbaseCandles(timeframe), coinbasePrice()]);
+        return { candles, price, source: "Coinbase" };
+      }
+    },
     {
       name: "OKX",
       get: async () => {
