@@ -1,5 +1,5 @@
-name = "bitcoin-scalping-bot"
-main = "worker/index.js"
+name = "bitcoin-scalping-bot-test"
+main = "worker/test-worker.js"
 compatibility_date = "2026-11-08"
 
 [triggers]
