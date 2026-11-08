@@ -1,7 +1,134 @@
-import{loadCandles,connectMarket}from"../data/market.js";import{createMarketChart}from"./chart.js";import{createJournal}from"./journal.js";import{evaluate,toggleStrategy,getRiskReward,setRiskReward,getConsensusEnabled,setConsensusEnabled,getRequiredMatches,setRequiredMatches}from"./signals.js";import{names}from"../strategies/index.js";import{supabase}from"./supabase.js";const $=id=>document.getElementById(id),fmt=n=>Number.isFinite(n)?n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";let tf="1m",candles=[],chart=createMarketChart($("chart")),socket=null,lastSignalKey="",lastClose=null;const journal=createJournal(supabase);
-function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"Binance подключён":"Нет соединения")}
-function syncMatchControls(){const enabled=getConsensusEnabled(),required=getRequiredMatches();$("consensusEnabled").checked=enabled;$("requiredMatches").value=String(required);$("requiredMatches").disabled=!enabled;$("matchHint").textContent=enabled?"Для сигнала нужно минимум "+required+" одинаковых подтверждения. Если включённых стратегий меньше — сигнал не откроется.":"Совпадения выключены: достаточно сигнала одной включённой стратегии."}
-function renderSignal(){const r=evaluate(candles);if(!r)return;syncMatchControls();const rr=$("riskReward");if(rr&&rr.value!==String(r.riskReward))rr.value=String(r.riskReward);$("strategies").innerHTML=r.results.map((s,i)=>'<div class="strategy '+(r.enabled[i]?"":"strategy-disabled")+'"><span class="strategy-name">'+r.names[i]+'</span><b class="tag '+(r.enabled[i]?(s==="BUY"?"green":s==="SELL"?"red":"yellow"):"muted")+'">'+(r.enabled[i]?s:"ВЫКЛ")+'</b><button type="button" class="strategy-toggle" data-strategy-toggle="'+i+'">'+(r.enabled[i]?"Отключить":"Включить")+'</button></div>').join("");$("signal").textContent=r.side;$("signal").className="signalbig "+(r.side==="BUY"?"green":r.side==="SELL"?"red":"yellow");$("matches").textContent=r.count+" совпадений · активно "+r.activeCount+" / "+names.length;$("entry").textContent=fmt(r.entry);$("sl").textContent=fmt(r.sl);$("tp").textContent=fmt(r.tp);$("signalNote").textContent=r.side==="WAIT"?"Ожидание сигнала: "+(r.consensusEnabled?"нужно "+r.requiredMatches+" совпадений":"достаточно одной включённой стратегии")+".":"Совпадений "+r.count+" среди "+r.activeCount+" включённых стратегий. Риск/прибыль 1:"+String(r.riskReward).replace(".",",")+". Уровни учебные, не гарантия результата.";const key=tf+"-"+r.time+"-"+r.side;if(r.side!=="WAIT"&&key!==lastSignalKey){lastSignalKey=key;journal.open(key,r.side,r.entry,r.sl,r.tp,r.names.filter((n,i)=>r.enabled[i]&&r.results[i]===r.side))}}
-function price(p){$("price").textContent=fmt(p);if(lastClose){const d=(p-lastClose)/lastClose*100;$("priceChange").textContent=(d>=0?"+":"")+d.toFixed(2)+"%";$("priceChange").className="change "+(d>=0?"green":"red")}journal.update(p)}
-async function start(){if(socket){socket.onclose=null;socket.close();socket=null}try{$("tfLabel").textContent=tf==="1m"?"1 минута":"5 минут";candles=await loadCandles(tf);chart?.series.setData(candles);chart?.chart.timeScale().fitContent();lastClose=candles.at(-1).close;price(lastClose);renderSignal();status(true);socket=connectMarket(tf,(c,closed)=>{const i=candles.findIndex(x=>x.time===c.time);if(i>=0)candles[i]=c;else candles.push(c);chart?.series.update(c);price(c.close);if(closed){lastClose=c.close;renderSignal()}},status);socket.onclose=()=>{if(navigator.onLine)setTimeout(()=>{if(!socket||socket.readyState===WebSocket.CLOSED)start()},5000)}}catch(e){status(false);$("signalNote").textContent="Не удалось получить публичные котировки. Проверьте интернет и обновите страницу."}}
-$("strategies").addEventListener("click",e=>{const b=e.target.closest("[data-strategy-toggle]");if(!b)return;toggleStrategy(Number(b.dataset.strategyToggle));lastSignalKey="";renderSignal()});$("riskReward").value=String(getRiskReward());$("riskReward").addEventListener("change",e=>{setRiskReward(e.target.value);lastSignalKey="";renderSignal()});$("consensusEnabled").addEventListener("change",e=>{setConsensusEnabled(e.target.checked);lastSignalKey="";renderSignal()});$("requiredMatches").addEventListener("change",e=>{const n=Math.max(1,Math.min(names.length,Math.round(Number(e.target.value)||1)));setRequiredMatches(n);lastSignalKey="";renderSignal()});$("requiredMatches").addEventListener("input",e=>{const n=Number(e.target.value);if(Number.isInteger(n)&&n>=1&&n<=names.length){setRequiredMatches(n);lastSignalKey="";renderSignal()}});document.querySelectorAll("[data-tf]").forEach(b=>b.addEventListener("click",()=>{if(tf===b.dataset.tf)return;tf=b.dataset.tf;document.querySelectorAll("[data-tf]").forEach(x=>x.classList.toggle("active",x===b));lastSignalKey="";start()}));$("clearJournal").addEventListener("click",async()=>{if(confirm("Удалить общий журнал на всех устройствах?"))try{await journal.clear()}catch(e){alert("Ошибка: "+e.message)}});document.querySelectorAll(".nav [data-view]").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll("main [data-screen]").forEach(s=>s.hidden=s.dataset.screen!==b.dataset.view);document.querySelectorAll(".nav [data-view]").forEach(x=>x.classList.toggle("active",x===b))}));syncMatchControls();(async()=>{try{await journal.init();await start()}catch(e){console.error(e);$("cloudStatus").textContent="Ошибка подключения облачного журнала: "+e.message;status(false)}})();
+import{loadCandles,connectMarket}from"../data/market.js";
+import{createMarketChart}from"./chart.js";
+import{createJournal}from"./journal.js";
+import{names}from"../strategies/index.js";
+import{supabase}from"./supabase.js";
+const $=id=>document.getElementById(id);
+const fmt=n=>Number.isFinite(Number(n))?Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";
+const WORKER="https://bitcoin-scalping-bot.fsb777f.workers.dev";
+let tf="1m",candles=[],chart=createMarketChart($("chart")),socket=null,lastClose=null,settings=null,serverState=null,polling=false;
+const journal=createJournal(supabase);
+const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),consensus_enabled:true,required_matches:3,risk_reward:2});
+function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"Bybit подключён":"Нет соединения")}
+function syncControls(){
+ if(!settings)return;
+ $("consensusEnabled").checked=settings.consensus_enabled;
+ $("requiredMatches").value=String(settings.required_matches);
+ $("requiredMatches").disabled=!settings.consensus_enabled;
+ $("matchHint").textContent=settings.consensus_enabled
+  ?"Для сигнала нужно минимум "+settings.required_matches+" одинаковых подтверждения. Если включённых стратегий меньше — сигнал не откроется."
+  :"Совпадения выключены: достаточно сигнала одной включённой стратегии.";
+ $("riskReward").value=String(settings.risk_reward);
+ $("tfLabel").textContent=tf==="1m"?"1 минута":"5 минут";
+ document.querySelectorAll("[data-tf]").forEach(b=>b.classList.toggle("active",b.dataset.tf===tf));
+}
+function renderStrategies(){
+ const results=serverState?.strategy_results||[];
+ $("strategies").innerHTML=names.map((name,i)=>{
+  const enabled=!!settings?.enabled_strategies?.[i];
+  const signal=results[i]?.signal||"WAIT";
+  return '<div class="strategy '+(enabled?"":"strategy-disabled")+'"><span class="strategy-name">'+name+'</span><b class="tag '+(enabled?(signal==="BUY"?"green":signal==="SELL"?"red":"yellow"):"muted")+'">'+(enabled?signal:"ВЫКЛ")+'</b><button type="button" class="strategy-toggle" data-strategy-toggle="'+i+'">'+(enabled?"Отключить":"Включить")+'</button></div>';
+ }).join("");
+}
+function renderSignal(){
+ if(!serverState)return;
+ const r=serverState;
+ $("signal").textContent=r.side||"WAIT";
+ $("signal").className="signalbig "+(r.side==="BUY"?"green":r.side==="SELL"?"red":"yellow");
+ $("matches").textContent=(r.count||0)+" совпадений · активно "+(r.active_count||0)+" / "+names.length;
+ $("entry").textContent=fmt(r.entry);$("sl").textContent=fmt(r.sl);$("tp").textContent=fmt(r.tp);
+ const stamp=r.updated_at?new Date(r.updated_at).toLocaleTimeString("ru-RU"):"—";
+ $("signalNote").textContent=r.last_error?"Ошибка сканера: "+r.last_error:"Серверный сигнал · обновлено "+stamp+". Виртуальная торговля, реальные ордера выключены.";
+ renderStrategies();
+}
+async function loadSettings(){
+ const {data,error}=await supabase.from("bot_settings").select("*").eq("id",1).maybeSingle();
+ if(error)throw error;
+ settings={...defaults(),...(data||{})};
+ if(!Array.isArray(settings.enabled_strategies)||settings.enabled_strategies.length!==names.length)settings.enabled_strategies=names.map(()=>true);
+ settings.enabled_strategies=settings.enabled_strategies.map(Boolean);
+ if(![1,1.5,2,2.5,3,4].includes(Number(settings.risk_reward)))settings.risk_reward=2;
+ if(!Number.isInteger(Number(settings.required_matches))||settings.required_matches<1||settings.required_matches>names.length)settings.required_matches=3;
+ tf=settings.timeframe==="5m"?"5m":"1m";
+ syncControls();
+}
+async function saveSettings(){
+ const payload={id:1,timeframe:tf,enabled_strategies:settings.enabled_strategies,consensus_enabled:settings.consensus_enabled,required_matches:settings.required_matches,risk_reward:settings.risk_reward,updated_at:new Date().toISOString()};
+ const {error}=await supabase.from("bot_settings").upsert(payload,{onConflict:"id"});
+ if(error)throw error;
+ $("cloudStatus").textContent="Настройки сохранены в облаке · сканер обновит их в ближайшую минуту";
+}
+async function pollState(){
+ if(polling)return;polling=true;
+ try{
+  const r=await fetch(WORKER+"/api/state",{cache:"no-store"});
+  if(!r.ok)throw Error("HTTP "+r.status);
+  serverState=await r.json();
+  if(serverState.error)throw Error(serverState.error);
+  renderSignal();
+ }catch(e){$("signalNote").textContent="Не удалось получить серверный сигнал: "+e.message}
+ finally{polling=false}
+}
+function updatePrice(p){
+ $("price").textContent=fmt(p);
+ if(lastClose){const d=(p-lastClose)/lastClose*100;$("priceChange").textContent=(d>=0?"+":"")+d.toFixed(2)+"%";$("priceChange").className="change "+(d>=0?"green":"red")}
+}
+async function startChart(){
+ if(socket){socket.onclose=null;socket.close();socket=null}
+ try{
+  $("tfLabel").textContent=tf==="1m"?"1 минута":"5 минут";
+  candles=await loadCandles(tf);
+  chart?.series.setData(candles);chart?.chart.timeScale().fitContent();
+  lastClose=candles.at(-1)?.close;if(lastClose)updatePrice(lastClose);
+  status(true);
+  socket=connectMarket(tf,(c,closed)=>{
+   const i=candles.findIndex(x=>x.time===c.time);
+   if(i>=0)candles[i]=c;else candles.push(c);
+   chart?.series.update(c);updatePrice(c.close);
+   if(closed)lastClose=c.close;
+  },status);
+  socket.onclose=()=>{if(navigator.onLine)setTimeout(()=>{if(!socket||socket.readyState===WebSocket.CLOSED)startChart()},5000)};
+ }catch(e){status(false);$("signalNote").textContent="Ошибка загрузки графика Bybit: "+e.message}
+}
+$("strategies").addEventListener("click",async e=>{
+ const b=e.target.closest("[data-strategy-toggle]");if(!b||!settings)return;
+ const i=Number(b.dataset.strategyToggle);if(i<0||i>=names.length)return;
+ settings.enabled_strategies[i]=!settings.enabled_strategies[i];
+ syncControls();renderStrategies();
+ try{await saveSettings()}catch(err){settings.enabled_strategies[i]=!settings.enabled_strategies[i];syncControls();renderStrategies();alert("Не удалось сохранить настройки: "+err.message)}
+});
+$("riskReward").addEventListener("change",async e=>{
+ const old=settings.risk_reward;settings.risk_reward=Number(e.target.value);
+ try{await saveSettings()}catch(err){settings.risk_reward=old;syncControls();alert("Ошибка сохранения: "+err.message)}
+});
+$("consensusEnabled").addEventListener("change",async e=>{
+ const old=settings.consensus_enabled;settings.consensus_enabled=e.target.checked;syncControls();
+ try{await saveSettings()}catch(err){settings.consensus_enabled=old;syncControls();alert("Ошибка сохранения: "+err.message)}
+});
+$("requiredMatches").addEventListener("change",async e=>{
+ const old=settings.required_matches,n=Math.max(1,Math.min(names.length,Math.round(Number(e.target.value)||1)));
+ settings.required_matches=n;syncControls();
+ try{await saveSettings()}catch(err){settings.required_matches=old;syncControls();alert("Ошибка сохранения: "+err.message)}
+});
+document.querySelectorAll("[data-tf]").forEach(b=>b.addEventListener("click",async()=>{
+ if(tf===b.dataset.tf)return;
+ const old=tf;tf=b.dataset.tf;settings.timeframe=tf;syncControls();
+ try{await saveSettings();await startChart()}catch(e){tf=old;settings.timeframe=old;syncControls();alert("Не удалось изменить таймфрейм: "+e.message)}
+}));
+$("clearJournal").addEventListener("click",async()=>{
+ if(confirm("Удалить общий журнал на всех устройствах?"))try{await journal.clear()}catch(e){alert("Ошибка: "+e.message)}
+});
+document.querySelectorAll(".nav [data-view]").forEach(b=>b.addEventListener("click",()=>{
+ document.querySelectorAll("main [data-screen]").forEach(s=>s.hidden=s.dataset.screen!==b.dataset.view);
+ document.querySelectorAll(".nav [data-view]").forEach(x=>x.classList.toggle("active",x===b));
+}));
+(async()=>{
+ try{
+  await journal.init();
+  await loadSettings();
+  await startChart();
+  await pollState();
+  setInterval(pollState,5000);
+  $("cloudStatus").textContent="Облачный журнал и серверные настройки подключены";
+ }catch(e){console.error(e);$("cloudStatus").textContent="Ошибка облачного подключения: "+e.message;status(false)}
+})();
