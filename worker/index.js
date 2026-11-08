@@ -68,18 +68,59 @@ async function bybitRequest(path) {
 async function bybitCandles(timeframe) {
   const interval = timeframe === "5m" ? "5" : "1";
   const result = await bybitRequest("/v5/market/kline?category=spot&symbol=BTCUSDT&interval=" + interval + "&limit=300");
-  // Bybit returns newest first. Sort oldest first and ignore the still-forming candle.
   const raw = (result.list || []).slice().reverse();
   return raw.slice(0, -1).map(k => ({
     time: Number(k[0]) / 1000, open: +k[1], high: +k[2], low: +k[3],
     close: +k[4], volume: +k[5]
   }));
 }
-async function currentPrice() {
+async function bybitPrice() {
   const result = await bybitRequest("/v5/market/tickers?category=spot&symbol=BTCUSDT");
   const price = Number(result.list?.[0]?.lastPrice);
   if (!Number.isFinite(price) || price <= 0) throw new Error("Bybit returned an invalid BTCUSDT price");
   return price;
+}
+async function binanceRequest(path) {
+  let response;
+  try {
+    response = await fetch("https://api.binance.com" + path, { headers: { "Accept": "application/json" } });
+  } catch (error) {
+    throw new Error("Binance network request failed: " + (error?.message || String(error)));
+  }
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 400);
+    throw new Error("Binance HTTP " + response.status + " " + path.split("?")[0] + ": " + detail);
+  }
+  return response.json();
+}
+async function binanceCandles(timeframe) {
+  const interval = timeframe === "5m" ? "5m" : "1m";
+  const raw = await binanceRequest("/api/v3/klines?symbol=BTCUSDT&interval=" + interval + "&limit=300");
+  return raw.slice(0, -1).map(k => ({
+    time: Number(k[0]) / 1000, open: +k[1], high: +k[2], low: +k[3],
+    close: +k[4], volume: +k[5]
+  }));
+}
+async function binancePrice() {
+  const data = await binanceRequest("/api/v3/ticker/price?symbol=BTCUSDT");
+  const price = Number(data.price);
+  if (!Number.isFinite(price) || price <= 0) throw new Error("Binance returned an invalid BTCUSDT price");
+  return price;
+}
+async function getMarketData(timeframe) {
+  try {
+    const [candles, price] = await Promise.all([bybitCandles(timeframe), bybitPrice()]);
+    return { candles, price, source: "Bybit" };
+  } catch (bybitError) {
+    console.error("Bybit unavailable; trying Binance fallback:", bybitError?.message || String(bybitError));
+    try {
+      const [candles, price] = await Promise.all([binanceCandles(timeframe), binancePrice()]);
+      return { candles, price, source: "Binance", fallback_reason: bybitError?.message || String(bybitError) };
+    } catch (binanceError) {
+      throw new Error("Market data unavailable. Bybit: " + (bybitError?.message || String(bybitError)) +
+        " | Binance: " + (binanceError?.message || String(binanceError)));
+    }
+  }
 }
 async function saveState(env, state) {
   await db(env, "bot_state?on_conflict=id", {
@@ -137,9 +178,10 @@ async function updateOpenTrades(env, price) {
   }
 }
 async function runScan(env) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) throw new Error("Set SUPABASE_URL and SUPABASE_SECRET_KEY in Worker secrets");
+  if (!env.SUPABASE_SECRET_KEY) throw new Error("Set SUPABASE_SECRET_KEY in Worker secrets");
   const settings = await getSettings(env);
-  const [candles, price] = await Promise.all([bybitCandles(settings.timeframe), currentPrice()]);
+  const market = await getMarketData(settings.timeframe);
+  const { candles, price, source } = market;
   if (candles.length < 60) throw new Error("Not enough completed candles");
   const context = buildContext(candles);
   const results = strategies.map(fn => { try { return fn(context); } catch { return "WAIT"; } });
@@ -175,18 +217,23 @@ async function runScan(env) {
     required_matches: required, consensus_enabled: settings.consensusEnabled,
     entry, sl, tp, candle_time: candle.time,
     strategy_results: names.map((name, i) => ({ name, signal: results[i], enabled: settings.enabled[i] })),
-    last_error: null
+    market_source: source, scan_ok: true, last_error: null
   });
-  return { ok: true, price, side, count, activeCount, required, candleTime: candle.time };
+  return { ok: true, price, side, count, activeCount, required, candleTime: candle.time, source };
 }
 
 export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runScan(env).catch(async error => {
       const detail = error?.message || String(error);
-      console.error("Scheduled scan failed:", { message: detail, stack: error?.stack || null });
-      try { await saveState(env, { last_error: detail, side: "WAIT" }); } catch (e) {
-        console.error("Failed to save scan error:", e?.message || String(e));
+      console.error("Scheduled scan failed: " + detail + " | " + (error?.stack || ""));
+      try {
+        await saveState(env, {
+          side: "WAIT", count: 0, entry: null, sl: null, tp: null,
+          strategy_results: [], scan_ok: false, last_error: detail
+        });
+      } catch (e) {
+        console.error("Failed to save scan error: " + (e?.message || String(e)));
       }
     }));
   },
