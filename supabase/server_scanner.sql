@@ -35,6 +35,11 @@ create table if not exists public.bot_state (
 );
 
 alter table public.bot_state add column if not exists ai_enabled boolean not null default false;
+alter table public.bot_state add column if not exists ai_side text;
+alter table public.bot_state add column if not exists ai_count integer not null default 0;
+alter table public.bot_state add column if not exists ai_entry numeric;
+alter table public.bot_state add column if not exists ai_sl numeric;
+alter table public.bot_state add column if not exists ai_tp numeric;
 alter table public.bot_state add column if not exists ai_confidence integer;
 alter table public.bot_state add column if not exists ai_reason text;
 alter table public.bot_state add column if not exists ai_selected jsonb not null default '[]'::jsonb;
