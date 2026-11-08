@@ -43,38 +43,30 @@ async function getSettings(env) {
     riskReward: [1, 1.5, 2, 2.5, 3, 4].includes(Number(s.risk_reward)) ? Number(s.risk_reward) : 2
   };
 }
-async function binanceRequest(path) {
-  // The market-data-only host is often more reliable from Cloudflare Workers
-  // than Binance's trading API hostname.
-  const hosts = ["https://data-api.binance.vision", "https://api.binance.com"];
-  let lastError = null;
-  for (const host of hosts) {
-    try {
-      const r = await fetch(host + path, {
-        headers: { "Accept": "application/json" }
-      });
-      if (!r.ok) {
-        lastError = new Error("Binance " + path.split("?")[0] + " HTTP " + r.status + " via " + host);
-        continue;
-      }
-      return await r.json();
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError || new Error("Binance market data unavailable");
+async function bybitRequest(path) {
+  const response = await fetch("https://api.bybit.com" + path, {
+    headers: { "Accept": "application/json" }
+  });
+  if (!response.ok) throw new Error("Bybit " + path.split("?")[0] + " HTTP " + response.status);
+  const data = await response.json();
+  if (data.retCode !== 0) throw new Error("Bybit API " + data.retCode + ": " + data.retMsg);
+  return data.result;
 }
-async function binanceCandles(timeframe) {
-  const raw = await binanceRequest("/api/v3/klines?symbol=BTCUSDT&interval=" + timeframe + "&limit=300");
-  // Ignore the still-forming candle: evaluate only completed candles.
+async function bybitCandles(timeframe) {
+  const interval = timeframe === "5m" ? "5" : "1";
+  const result = await bybitRequest("/v5/market/kline?category=spot&symbol=BTCUSDT&interval=" + interval + "&limit=300");
+  // Bybit returns newest first. Sort oldest first and ignore the still-forming candle.
+  const raw = (result.list || []).slice().reverse();
   return raw.slice(0, -1).map(k => ({
-    time: k[0] / 1000, open: +k[1], high: +k[2], low: +k[3],
+    time: Number(k[0]) / 1000, open: +k[1], high: +k[2], low: +k[3],
     close: +k[4], volume: +k[5]
   }));
 }
 async function currentPrice() {
-  const data = await binanceRequest("/api/v3/ticker/price?symbol=BTCUSDT");
-  return Number(data.price);
+  const result = await bybitRequest("/v5/market/tickers?category=spot&symbol=BTCUSDT");
+  const price = Number(result.list?.[0]?.lastPrice);
+  if (!Number.isFinite(price) || price <= 0) throw new Error("Bybit returned an invalid BTCUSDT price");
+  return price;
 }
 async function saveState(env, state) {
   await db(env, "bot_state?on_conflict=id", {
@@ -134,7 +126,7 @@ async function updateOpenTrades(env, price) {
 async function runScan(env) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) throw new Error("Set SUPABASE_URL and SUPABASE_SECRET_KEY in Worker secrets");
   const settings = await getSettings(env);
-  const [candles, price] = await Promise.all([binanceCandles(settings.timeframe), currentPrice()]);
+  const [candles, price] = await Promise.all([bybitCandles(settings.timeframe), currentPrice()]);
   if (candles.length < 60) throw new Error("Not enough completed candles");
   const context = buildContext(candles);
   const results = strategies.map(fn => { try { return fn(context); } catch { return "WAIT"; } });
