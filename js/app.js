@@ -19,7 +19,7 @@ function syncControls(){
   :"Совпадения выключены: достаточно сигнала одной включённой стратегии.";
  $("riskReward").value=String(settings.risk_reward);
  $("aiEnabled").checked=!!settings.ai_enabled;
- $("aiModeLabel").textContent=settings.ai_enabled?"ВКЛ · АДАПТИВНЫЙ РЕЖИМ":"ВЫКЛ";
+ $("aiModeLabel").textContent=settings.ai_enabled?"ВКЛ · ПАРАЛЛЕЛЬНЫЙ ТЕСТ":"ВЫКЛ";
 
  $("tfLabel").textContent=tf==="1m"?"1 минута":"5 минут";
  document.querySelectorAll("[data-tf]").forEach(b=>b.classList.toggle("active",b.dataset.tf===tf));
@@ -37,21 +37,25 @@ function renderStrategies(){
 function renderSignal(){
  if(!serverState)return;
  const r=serverState;
- const aiActive=!!settings?.ai_enabled&&r.ai_enabled===true;
- const shownSide=settings?.ai_enabled&&!aiActive?"WAIT":(r.side||"WAIT");
- $("signal").textContent=shownSide;
- $("signal").className="signalbig "+(shownSide==="BUY"?"green":shownSide==="SELL"?"red":"yellow");
+ const normalSide=r.side||"WAIT";
+ $("signal").textContent=normalSide;
+ $("signal").className="signalbig "+(normalSide==="BUY"?"green":normalSide==="SELL"?"red":"yellow");
  $("matches").textContent=(r.count||0)+" совпадений · активно "+(r.active_count||0)+" / "+names.length;
- $("entry").textContent=fmt(settings?.ai_enabled&&!aiActive?null:r.entry);$("sl").textContent=fmt(settings?.ai_enabled&&!aiActive?null:r.sl);$("tp").textContent=fmt(settings?.ai_enabled&&!aiActive?null:r.tp);
+ $("entry").textContent=fmt(r.entry);$("sl").textContent=fmt(r.sl);$("tp").textContent=fmt(r.tp);
  const stamp=r.updated_at?new Date(r.updated_at).toLocaleTimeString("ru-RU"):"—";
- $("signalNote").textContent=r.last_error?"Ошибка сканера: "+r.last_error:(aiActive?"Решение AI · ":"Обычный сканер · ")+"обновлено "+stamp+". Только виртуальная торговля.";
- $("aiSide").textContent=settings?.ai_enabled?(aiActive?(r.side||"WAIT"):"ОЖИДАНИЕ"):"OFF";
- $("aiSide").className=aiActive?(r.side==="BUY"?"green":r.side==="SELL"?"red":"yellow"):"";
+ $("signalNote").textContent=r.last_error?"Ошибка сканера: "+r.last_error:"Обычный сканер · обновлено "+stamp+". Работает независимо от AI.";
+ const aiActive=!!settings?.ai_enabled&&r.ai_enabled===true;
+ const aiSide=aiActive?(r.ai_side||"WAIT"):"OFF";
+ $("aiSide").textContent=aiSide;
+ $("aiSide").className=aiSide==="BUY"?"green":aiSide==="SELL"?"red":aiSide==="WAIT"?"yellow":"";
  $("aiConfidence").textContent=aiActive&&r.ai_confidence!=null?r.ai_confidence+"%":"—";
  $("aiSelected").textContent=aiActive?String((r.ai_selected||[]).length):"0";
- $("aiNote").textContent=!settings?.ai_enabled?"AI выключен. Работает обычный сканер.":!aiActive?"AI включён. Ожидаем следующий серверный цикл сканирования.":(r.ai_reason||"AI анализирует рынок.");
+ $("aiEntry").textContent=fmt(aiActive?r.ai_entry:null);
+ $("aiSl").textContent=fmt(aiActive?r.ai_sl:null);
+ $("aiTp").textContent=fmt(aiActive?r.ai_tp:null);
+ $("aiNote").textContent=!settings?.ai_enabled?"AI выключен. Обычный сканер продолжает работать самостоятельно.":!aiActive?"AI включён. Ожидаем следующий серверный цикл сканирования.":(r.ai_reason||"AI анализирует рынок.");
  const perf=aiActive?(r.ai_performance||[]):[],learned=perf.filter(p=>p.trades>=5).length,excluded=(r.ai_excluded||[]).length;
- $("aiLearning").textContent=aiActive?"Обучение по журналу: "+learned+" стратегий с выборкой от 5 сделок · исключено слабых: "+excluded+".":"Статистика AI появится после закрытия виртуальных сделок.";
+ $("aiLearning").textContent=aiActive?"AI анализирует собственные виртуальные сделки: "+learned+" стратегий с выборкой от 5 сделок · исключено слабых: "+excluded+". Уверенность — доля голосов, не вероятность прибыли.":"Статистика AI появится после закрытия его виртуальных сделок.";
  renderStrategies();
 }
 async function loadSettings(){
@@ -105,7 +109,7 @@ $("strategies").addEventListener("click",async e=>{
 });
 $("aiEnabled").addEventListener("change",async e=>{
  const old=!!settings.ai_enabled;settings.ai_enabled=e.target.checked;syncControls();
- $("aiModeLabel").textContent=settings.ai_enabled?"ВКЛ · ОЖИДАЕТ СКАНА":"ВЫКЛ";
+ $("aiModeLabel").textContent=settings.ai_enabled?"ВКЛ · ПАРАЛЛЕЛЬНЫЙ ТЕСТ":"ВЫКЛ";
  $("aiNote").textContent=settings.ai_enabled?"AI включён. Сервер применит режим при ближайшем сканировании.":"AI выключен. При ближайшем сканировании вернётся обычный режим.";
  try{await saveSettings()}catch(err){settings.ai_enabled=old;syncControls();alert("Не удалось сохранить режим AI: "+err.message)}
 });
