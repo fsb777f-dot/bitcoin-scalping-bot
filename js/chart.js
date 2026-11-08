@@ -1,1 +1,36 @@
-export function createMarketChart(el){if(!window.LightweightCharts){el.textContent="Не удалось загрузить библиотеку графика.";return null}const chart=LightweightCharts.createChart(el,{layout:{background:{color:"#111827"},textColor:"#91a0b7"},grid:{vertLines:{color:"#1d293b"},horzLines:{color:"#1d293b"}},rightPriceScale:{borderColor:"#243044"},timeScale:{borderColor:"#243044",timeVisible:true,secondsVisible:false},crosshair:{mode:1},width:el.clientWidth,height:el.clientHeight});const series=chart.addCandlestickSeries({upColor:"#20c997",downColor:"#ff647c",borderUpColor:"#20c997",borderDownColor:"#ff647c",wickUpColor:"#20c997",wickDownColor:"#ff647c"});new ResizeObserver(()=>chart.applyOptions({width:el.clientWidth})).observe(el);return{chart,series}}
+export function createMarketChart(el){
+  let timeframe="1m";
+  function render(){
+    const interval=timeframe==="5m"?"5":"1";
+    const params=new URLSearchParams({
+      symbol:"BINANCE:BTCUSDT",
+      interval,
+      hide_top_toolbar:"0",
+      hide_legend:"0",
+      saveimage:"0",
+      toolbarbg:"111827",
+      theme:"dark",
+      style:"1",
+      timezone:"Etc/UTC",
+      withdateranges:"1",
+      hideideas:"1",
+      allow_symbol_change:"0",
+      hide_side_toolbar:"1",
+      details:"0",
+      hotlist:"0",
+      calendar:"0",
+      locale:"ru"
+    });
+    el.innerHTML="";
+    const frame=document.createElement("iframe");
+    frame.title="График Bitcoin BTCUSDT TradingView";
+    frame.src="https://www.tradingview.com/widgetembed/?"+params.toString();
+    frame.loading="lazy";
+    frame.referrerPolicy="origin";
+    frame.allow="fullscreen";
+    frame.style.cssText="display:block;width:100%;height:100%;border:0;border-radius:10px";
+    el.appendChild(frame);
+  }
+  render();
+  return {setTimeframe(value){timeframe=value==="5m"?"5m":"1m";render()}};
+}
