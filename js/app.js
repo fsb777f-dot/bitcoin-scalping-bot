@@ -1,4 +1,3 @@
-import{loadCandles,connectMarket}from"../data/market.js";
 import{createMarketChart}from"./chart.js";
 import{createJournal}from"./journal.js";
 import{names}from"../strategies/index.js";
@@ -6,10 +5,10 @@ import{supabase}from"./supabase.js";
 const $=id=>document.getElementById(id);
 const fmt=n=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n))?Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";
 const WORKER="https://bitcoin-scalping-bot.fsb777f.workers.dev";
-let tf="1m",candles=[],chart=createMarketChart($("chart")),socket=null,lastClose=null,settings=null,serverState=null,polling=false;
+let tf="1m",chart=createMarketChart($("chart")),settings=null,serverState=null,polling=false;
 const journal=createJournal(supabase);
 const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),consensus_enabled:true,required_matches:3,risk_reward:2});
-function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"Bybit подключён":"Нет соединения")}
+function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"TradingView график":"График не загрузился")}
 function syncControls(){
  if(!settings)return;
  $("consensusEnabled").checked=settings.consensus_enabled;
@@ -66,6 +65,7 @@ async function pollState(){
   if(!r.ok)throw Error("HTTP "+r.status);
   serverState=await r.json();
   if(serverState.error)throw Error(serverState.error);
+  if(Number.isFinite(Number(serverState.price)) && Number(serverState.price)>0)updatePrice(Number(serverState.price));
   renderSignal();
  }catch(e){$("signalNote").textContent="Не удалось получить серверный сигнал: "+e.message}
  finally{polling=false}
@@ -75,21 +75,11 @@ function updatePrice(p){
  if(lastClose){const d=(p-lastClose)/lastClose*100;$("priceChange").textContent=(d>=0?"+":"")+d.toFixed(2)+"%";$("priceChange").className="change "+(d>=0?"green":"red")}
 }
 async function startChart(){
- if(socket){socket.onclose=null;socket.close();socket=null}
  try{
   $("tfLabel").textContent=tf==="1m"?"1 минута":"5 минут";
-  candles=await loadCandles(tf);
-  chart?.series.setData(candles);chart?.chart.timeScale().fitContent();
-  lastClose=candles.at(-1)?.close;if(lastClose)updatePrice(lastClose);
+  chart?.setTimeframe(tf);
   status(true);
-  socket=connectMarket(tf,(c,closed)=>{
-   const i=candles.findIndex(x=>x.time===c.time);
-   if(i>=0)candles[i]=c;else candles.push(c);
-   chart?.series.update(c);updatePrice(c.close);
-   if(closed)lastClose=c.close;
-  },status);
-  socket.onclose=()=>{if(navigator.onLine)setTimeout(()=>{if(!socket||socket.readyState===WebSocket.CLOSED)startChart()},5000)};
- }catch(e){status(false);$("signalNote").textContent="Ошибка загрузки графика Bybit: "+e.message}
+ }catch(e){status(false);$("signalNote").textContent="Ошибка отображения TradingView: "+e.message}
 }
 $("strategies").addEventListener("click",async e=>{
  const b=e.target.closest("[data-strategy-toggle]");if(!b||!settings)return;
