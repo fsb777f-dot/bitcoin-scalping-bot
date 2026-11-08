@@ -16,13 +16,14 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
   #journal-section tbody td{display:flex;flex-direction:column;gap:4px;min-width:0;padding:8px 3px;border-bottom:1px solid #202b3d;white-space:normal;overflow-wrap:anywhere;font-size:11px}
   #journal-section tbody td::before{color:var(--muted);font-size:9px;line-height:1.2}
   #journal-section tbody td:nth-child(1)::before{content:"Время"}
-  #journal-section tbody td:nth-child(2)::before{content:"Сторона"}
-  #journal-section tbody td:nth-child(3)::before{content:"Вход"}
-  #journal-section tbody td:nth-child(4)::before{content:"Stop Loss"}
-  #journal-section tbody td:nth-child(5)::before{content:"Take Profit"}
-  #journal-section tbody td:nth-child(6)::before{content:"Выход"}
-  #journal-section tbody td:nth-child(7)::before{content:"P/L"}
-  #journal-section tbody td:nth-child(8)::before{content:"Статус"}
+  #journal-section tbody td:nth-child(2)::before{content:"Система"}
+  #journal-section tbody td:nth-child(3)::before{content:"Сторона"}
+  #journal-section tbody td:nth-child(4)::before{content:"Вход"}
+  #journal-section tbody td:nth-child(5)::before{content:"Stop Loss"}
+  #journal-section tbody td:nth-child(6)::before{content:"Take Profit"}
+  #journal-section tbody td:nth-child(7)::before{content:"Выход"}
+  #journal-section tbody td:nth-child(8)::before{content:"P/L"}
+  #journal-section tbody td:nth-child(9)::before{content:"Статус"}
   #journal-section tbody td:nth-child(1){grid-column:1/-1}
   #journal-section tbody td:last-child{border-bottom:0}
   #journal-section tbody td.empty{grid-column:1/-1;display:block;text-align:center;padding:18px 5px}
