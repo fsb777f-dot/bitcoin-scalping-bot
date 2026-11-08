@@ -105,3 +105,22 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 .ai-trade-values b{display:block;color:var(--text);font-size:11px;margin-top:4px;overflow-wrap:anywhere}
 .ai-trade-values b.green{color:var(--green)}.ai-trade-values b.red{color:var(--red)}
 @media(max-width:390px){.ai-journal-stats{gap:6px}.ai-journal-stat{padding:8px}.ai-journal-stat b{font-size:16px}.ai-trade-values{gap:5px}}
+
+
+/* Isolated experimental Test tab */
+.test-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.test-card{min-width:0;background:#0c1320;border:1px solid var(--line);border-radius:11px;padding:12px}
+.test-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.test-card-head>div{min-width:0}
+.test-card-head b{display:block;font-size:12px;line-height:1.35}
+.test-card-head small{display:block;color:var(--muted);font-size:10px;line-height:1.4;margin-top:5px}
+.test-signal{font-size:20px;font-weight:850;margin:13px 0}
+.test-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.test-stats span{display:flex;flex-direction:column;gap:3px;color:var(--muted);font-size:10px}
+.test-stats b{color:var(--text);font-size:12px;font-variant-numeric:tabular-nums}
+.test-trade-list{display:grid;gap:7px}
+.test-trade{display:grid;grid-template-columns:1.5fr .5fr 1fr 1fr 1fr 1fr;gap:8px;align-items:center;background:#0c1320;border:1px solid var(--line);border-radius:9px;padding:10px;font-size:10px}
+.test-trade b{font-size:10px}
+.test-trade span{overflow-wrap:anywhere}
+@media(max-width:700px){.test-cards{grid-template-columns:1fr}.test-trade{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.test-trade b{grid-column:1/-1}}
+@media(max-width:600px){.nav{gap:2px;justify-content:space-around;padding-left:4px;padding-right:4px}.nav button{padding:8px 9px;font-size:11px}}
