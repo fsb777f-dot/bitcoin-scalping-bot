@@ -1,4 +1,4 @@
-const API = "https://bitcoin-scalping-bot.fsb777f.workers.dev";
+const API = "https://bitcoin-scalping-bot-test.fsb777f.workers.dev";
 const STRATEGIES = [
   ["brooks", "Brooks · Second Entry", "Тренд, коррекция и второе подтверждение"],
   ["cameron", "Cameron · Momentum", "Импульс, короткий откат и пробой"],
