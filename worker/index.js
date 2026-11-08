@@ -123,14 +123,70 @@ async function binancePrice() {
   if (!Number.isFinite(price) || price <= 0) throw new Error("Binance returned an invalid BTCUSDT price");
   return price;
 }
+async function okxRequest(path) {
+  const response = await fetch("https://www.okx.com" + path, {
+    headers: { "Accept": "application/json" },
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error("OKX HTTP " + response.status + " " + path.split("?")[0] + ": " + detail);
+  }
+  const data = await response.json();
+  if (data.code !== "0" || !Array.isArray(data.data)) {
+    throw new Error("OKX API error: " + (data.msg || JSON.stringify(data).slice(0, 300)));
+  }
+  return data.data;
+}
+async function okxCandles(timeframe) {
+  const bar = timeframe === "5m" ? "5m" : "1m";
+  const raw = await okxRequest("/api/v5/market/candles?instId=BTC-USDT&bar=" + bar + "&limit=300");
+  return raw.slice().reverse().filter(k => k[8] === "1").map(k => ({
+    time: Number(k[0]) / 1000, open: +k[1], high: +k[2], low: +k[3],
+    close: +k[4], volume: +k[5]
+  }));
+}
+async function okxPrice() {
+  const rows = await okxRequest("/api/v5/market/ticker?instId=BTC-USDT");
+  const price = Number(rows[0]?.last);
+  if (!Number.isFinite(price) || price <= 0) throw new Error("OKX returned an invalid BTC-USDT price");
+  return price;
+}
 async function getMarketData(timeframe) {
-  // Binance is the primary and consistent market-data source for both
-  // the server scanner and browser chart.
-  const [candles, price] = await Promise.all([
-    binanceCandles(timeframe),
-    binancePrice()
-  ]);
-  return { candles, price, source: "Binance" };
+  const sources = [
+    {
+      name: "OKX",
+      get: async () => {
+        const [candles, price] = await Promise.all([okxCandles(timeframe), okxPrice()]);
+        return { candles, price, source: "OKX" };
+      }
+    },
+    {
+      name: "Bybit",
+      get: async () => {
+        const [candles, price] = await Promise.all([bybitCandles(timeframe), bybitPrice()]);
+        return { candles, price, source: "Bybit" };
+      }
+    },
+    {
+      name: "Binance",
+      get: async () => {
+        const [candles, price] = await Promise.all([binanceCandles(timeframe), binancePrice()]);
+        return { candles, price, source: "Binance" };
+      }
+    }
+  ];
+  const errors = [];
+  for (const source of sources) {
+    try {
+      const market = await source.get();
+      if (market.candles.length < 60) throw new Error("Not enough completed candles from " + source.name);
+      return market;
+    } catch (error) {
+      errors.push(source.name + ": " + (error?.message || String(error)));
+    }
+  }
+  throw new Error("All market-data sources failed. " + errors.join(" | "));
 }
 async function saveState(env, state) {
   await db(env, "bot_state?on_conflict=id", {
