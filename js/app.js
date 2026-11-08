@@ -28,8 +28,10 @@ function renderStrategies(){
  const results=serverState?.strategy_results||[];
  $("strategies").innerHTML=names.map((name,i)=>{
   const enabled=!!settings?.enabled_strategies?.[i];
-  const signal=results[i]?.signal||"WAIT";
-  return '<div class="strategy '+(enabled?"":"strategy-disabled")+'"><span class="strategy-name">'+name+'</span><b class="tag '+(enabled?(signal==="BUY"?"green":signal==="SELL"?"red":"yellow"):"muted")+'">'+(enabled?signal:"ВЫКЛ")+'</b><button type="button" class="strategy-toggle" data-strategy-toggle="'+i+'">'+(enabled?"Отключить":"Включить")+'</button></div>';
+  const signal=results[i]?.signal||"WAIT",info=results[i]||{};
+  const aiUsed=serverState?.ai_enabled&&(serverState.ai_selected||[]).includes(name);
+  const aiMark=serverState?.ai_enabled?'<small class="ai-strategy-flag '+(info.ai_excluded?"red":aiUsed?"green":"muted")+'">'+(info.ai_excluded?"AI исключил":aiUsed?"AI выбрал":"AI не выбрал")+(info.ai_weight!=null?" · ×"+info.ai_weight:"")+'</small>':"";
+  return '<div class="strategy '+(enabled?"":"strategy-disabled")+'"><span class="strategy-name">'+name+'</span>'+aiMark+'<b class="tag '+(enabled?(signal==="BUY"?"green":signal==="SELL"?"red":"yellow"):"muted")+'">'+(enabled?signal:"ВЫКЛ")+'</b><button type="button" class="strategy-toggle" data-strategy-toggle="'+i+'">'+(enabled?"Отключить":"Включить")+'</button></div>';
  }).join("");
 }
 function renderSignal(){
