@@ -12,7 +12,7 @@ const reply = (data, status = 200) => new Response(JSON.stringify(data), {
 
 async function db(env, path, init = {}) {
   if (!env.SUPABASE_SECRET_KEY) throw new Error("Missing SUPABASE_SECRET_KEY");
-  const base = (env.SUPABASE_URL || "").replace(/\/+$/, "");
+  const base = (env.SUPABASE_URL || "https://pycdhpsmxhmvuyqerotb.supabase.co").replace(/\/+$/, "");
   if (!base) throw new Error("Missing SUPABASE_URL");
   const response = await fetch(base + "/rest/v1/" + path, {
     ...init,
