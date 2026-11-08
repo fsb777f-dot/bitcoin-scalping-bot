@@ -397,10 +397,13 @@ async function runScan(env) {
   await saveState(env, {
     timeframe: settings.timeframe, price, side, count, active_count: activeCount,
     required_matches: settings.aiEnabled ? 2 : required, consensus_enabled: settings.aiEnabled ? true : settings.consensusEnabled,
-    ai_enabled: settings.aiEnabled, ai_confidence: ai?.confidence ?? null,
-    ai_reason: ai?.reason ?? null, ai_selected: ai?.selected ?? [],
-    ai_excluded: ai?.excluded ?? [], ai_performance: performance,
-    normal_side: normalSide, entry, sl, tp, candle_time: candle.time,
+    ...(settings.aiEnabled ? {
+      ai_enabled: true, ai_confidence: ai?.confidence ?? null,
+      ai_reason: ai?.reason ?? null, ai_selected: ai?.selected ?? [],
+      ai_excluded: ai?.excluded ?? [], ai_performance: performance,
+      normal_side: normalSide
+    } : {}),
+    entry, sl, tp, candle_time: candle.time,
     strategy_results: names.map((name, i) => ({ name, signal: results[i], enabled: settings.enabled[i], ai_weight: ai?.performance.find(p => p.name === name)?.weight ?? null, ai_excluded: ai?.performance.find(p => p.name === name)?.excluded ?? false })),
     market_source: source, scan_ok: true, last_error: null
   });
