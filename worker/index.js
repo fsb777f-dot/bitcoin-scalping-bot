@@ -319,7 +319,7 @@ async function updateOpenTrades(env, price) {
   }
 }
 async function getStrategyPerformance(env) {
-  const rows = await db(env, "trades?status=eq.CLOSED&select=confirmations,pnl,result,trade_time&order=trade_time.desc&limit=300");
+  const rows = await db(env, "trades?status=eq.CLOSED&trade_key=like.ai%&select=confirmations,pnl,result,trade_time,trade_key&order=trade_time.desc&limit=300");
   return names.map(name => {
     const relevant = (rows || []).filter(t => Array.isArray(t.confirmations) && t.confirmations.includes(name));
     const wins = relevant.filter(t => Number(t.pnl) > 0 || t.result === "TP").length;
@@ -376,38 +376,58 @@ async function runScan(env) {
   await updateOpenTrades(env, price);
   const performance = settings.aiEnabled ? await getStrategyPerformance(env) : [];
   const ai = settings.aiEnabled ? aiDecision(results, settings.enabled, performance) : null;
-  const side = settings.aiEnabled ? ai.side : normalSide;
-  const confirmations = settings.aiEnabled ? ai.selected : names.filter((_, i) => settings.enabled[i] && results[i] === side);
-  const count = settings.aiEnabled ? ai.count : side === "BUY" ? buys : side === "SELL" ? sells : Math.max(buys, sells);
   const candle = candles[candles.length - 1];
   const slDistance = context.atr * 1.2;
-  const entry = side === "WAIT" ? null : price;
-  const sl = side === "BUY" ? entry - slDistance : side === "SELL" ? entry + slDistance : null;
-  const tp = side === "BUY" ? entry + slDistance * settings.riskReward
-    : side === "SELL" ? entry - slDistance * settings.riskReward : null;
-  if (side !== "WAIT") {
-    const tradeKey = (settings.aiEnabled ? "ai:" : "server:") + settings.timeframe + ":" + candle.time + ":" + side;
+
+  // The classic scanner always makes its own decision and records its own virtual trade.
+  const normalEntry = normalSide === "WAIT" ? null : price;
+  const normalSl = normalSide === "BUY" ? normalEntry - slDistance : normalSide === "SELL" ? normalEntry + slDistance : null;
+  const normalTp = normalSide === "BUY" ? normalEntry + slDistance * settings.riskReward
+    : normalSide === "SELL" ? normalEntry - slDistance * settings.riskReward : null;
+  if (normalSide !== "WAIT") {
     await insertTradeOnce(env, {
-      trade_key: tradeKey, trade_time: Date.now(), side, entry, sl, tp,
-      initial_tp: tp, trailing_distance: Math.abs(entry - sl), trailing_active: false,
-      confirmations, exit: null, pnl: null, status: "OPEN", result: null,
+      trade_key: "server:" + settings.timeframe + ":" + candle.time + ":" + normalSide,
+      trade_time: Date.now(), side: normalSide, entry: normalEntry, sl: normalSl, tp: normalTp,
+      initial_tp: normalTp, trailing_distance: Math.abs(normalEntry - normalSl), trailing_active: false,
+      confirmations: names.filter((_, i) => settings.enabled[i] && results[i] === normalSide),
+      exit: null, pnl: null, status: "OPEN", result: null, updated_at: new Date().toISOString()
+    });
+  }
+
+  // AI is an independent paper trader. Its switch never changes the classic scanner.
+  const aiSide = ai?.side || "WAIT";
+  const aiEntry = settings.aiEnabled && aiSide !== "WAIT" ? price : null;
+  const aiSl = aiSide === "BUY" ? aiEntry - slDistance : aiSide === "SELL" ? aiEntry + slDistance : null;
+  const aiTp = aiSide === "BUY" ? aiEntry + slDistance * settings.riskReward
+    : aiSide === "SELL" ? aiEntry - slDistance * settings.riskReward : null;
+  if (settings.aiEnabled && aiSide !== "WAIT") {
+    await insertTradeOnce(env, {
+      trade_key: "ai:" + settings.timeframe + ":" + candle.time + ":" + aiSide,
+      trade_time: Date.now(), side: aiSide, entry: aiEntry, sl: aiSl, tp: aiTp,
+      initial_tp: aiTp, trailing_distance: Math.abs(aiEntry - aiSl), trailing_active: false,
+      confirmations: ai.selected, exit: null, pnl: null, status: "OPEN", result: null,
       updated_at: new Date().toISOString()
     });
   }
   await saveState(env, {
-    timeframe: settings.timeframe, price, side, count, active_count: activeCount,
-    required_matches: settings.aiEnabled ? 2 : required, consensus_enabled: settings.aiEnabled ? true : settings.consensusEnabled,
-    ...(settings.aiEnabled ? {
-      ai_enabled: true, ai_confidence: ai?.confidence ?? null,
-      ai_reason: ai?.reason ?? null, ai_selected: ai?.selected ?? [],
-      ai_excluded: ai?.excluded ?? [], ai_performance: performance,
-      normal_side: normalSide
-    } : {}),
-    entry, sl, tp, candle_time: candle.time,
-    strategy_results: names.map((name, i) => ({ name, signal: results[i], enabled: settings.enabled[i], ai_weight: ai?.performance.find(p => p.name === name)?.weight ?? null, ai_excluded: ai?.performance.find(p => p.name === name)?.excluded ?? false })),
+    timeframe: settings.timeframe, price, side: normalSide,
+    count: normalSide === "BUY" ? buys : normalSide === "SELL" ? sells : Math.max(buys, sells),
+    active_count: activeCount, required_matches: required,
+    consensus_enabled: settings.consensusEnabled,
+    entry: normalEntry, sl: normalSl, tp: normalTp, candle_time: candle.time,
+    ai_enabled: settings.aiEnabled,
+    ai_side: aiSide, ai_count: ai?.count ?? 0, ai_entry: aiEntry, ai_sl: aiSl, ai_tp: aiTp,
+    ai_confidence: ai?.confidence ?? null, ai_reason: ai?.reason ?? (settings.aiEnabled ? "AI ожидает подтверждения." : "AI выключен."),
+    ai_selected: ai?.selected ?? [], ai_excluded: ai?.excluded ?? [],
+    ai_performance: performance, normal_side: normalSide,
+    strategy_results: names.map((name, i) => ({
+      name, signal: results[i], enabled: settings.enabled[i],
+      ai_weight: ai?.performance.find(p => p.name === name)?.weight ?? null,
+      ai_excluded: ai?.performance.find(p => p.name === name)?.excluded ?? false
+    })),
     market_source: source, scan_ok: true, last_error: null
   });
-  return { ok: true, price, side, count, activeCount, required: settings.aiEnabled ? 2 : required, source, aiEnabled: settings.aiEnabled };
+  return { ok: true, price, normalSide, aiSide, activeCount, required, source, aiEnabled: settings.aiEnabled };
 }
 
 export default {
