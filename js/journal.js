@@ -1,1 +1,62 @@
-import{CONFIG}from"./config.js";import{names}from"../strategies/index.js";const fmt=n=>Number.isFinite(n)?Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";export function createJournal(){let trades=[];try{trades=JSON.parse(localStorage.getItem(CONFIG.storageKey)||"[]")}catch{trades=[]}const render=()=>{const closed=trades.filter(t=>t.status==="CLOSED");const wins=closed.filter(t=>t.result==="TP"||Number(t.pnl)>0).length;const losses=closed.filter(t=>t.result==="SL"||Number(t.pnl)<0).length;const totalPnl=closed.reduce((sum,t)=>sum+(Number.isFinite(Number(t.pnl))?Number(t.pnl):0),0);document.getElementById("tradeCount").textContent=String(trades.length);document.getElementById("profitableCount").textContent=String(wins);document.getElementById("losingCount").textContent=String(losses);document.getElementById("winRate").textContent=closed.length?(wins/closed.length*100).toFixed(1)+"%":"—";const pnl=document.getElementById("totalPnl");pnl.textContent=(totalPnl>=0?"+":"")+fmt(totalPnl)+" USDT";pnl.className=totalPnl>0?"green":totalPnl<0?"red":"";document.getElementById("journal").innerHTML=trades.length?trades.slice().reverse().map(t=>'<tr><td>'+new Date(t.time).toLocaleString("ru-RU")+'</td><td class="'+(t.side==="BUY"?"green":"red")+'">'+t.side+'</td><td>'+fmt(t.entry)+'</td><td>'+fmt(t.sl)+'</td><td>'+fmt(t.tp)+'</td><td>'+fmt(t.exit)+'</td><td class="'+(t.pnl>=0?"green":"red")+'">'+(t.pnl==null?"—":(t.pnl>=0?"+":"")+fmt(t.pnl))+'</td><td>'+(t.status==="OPEN"?"ОТКРЫТА":t.result==="TP"?"TP":"SL")+'</td></tr>').join(""):'<tr><td colspan="8" class="empty">Пока нет сделок</td></tr>';const stats=names.map(name=>{const related=closed.filter(t=>Array.isArray(t.confirmations)&&t.confirmations.includes(name));const w=related.filter(t=>t.result==="TP"||Number(t.pnl)>0).length;const l=related.filter(t=>t.result==="SL"||Number(t.pnl)<0).length;return{name,total:related.length,w,l,rate:related.length?(w/related.length*100).toFixed(1)+"%":"—"}});document.getElementById("strategyStats").innerHTML=stats.map(s=>'<div class="strategy-stat"><div class="strategy-stat-head"><b>'+s.name+'</b><span>'+s.rate+'</span></div><div class="strategy-stat-detail"><span>Сделок: '+s.total+'</span><span class="green">Плюс: '+s.w+'</span><span class="red">Минус: '+s.l+'</span></div></div>').join("")};const save=()=>{localStorage.setItem(CONFIG.storageKey,JSON.stringify(trades));render()};function open(key,side,entry,sl,tp,confirmations=[]){if(trades.some(t=>t.key===key))return;trades.push({key,time:Date.now(),side,entry,sl,tp,confirmations,exit:null,pnl:null,status:"OPEN"});save()}function update(price){let changed=false;trades.forEach(t=>{if(t.status!=="OPEN")return;const hit=t.side==="BUY"?(price<=t.sl?"SL":price>=t.tp?"TP":null):(price>=t.sl?"SL":price<=t.tp?"TP":null);if(hit){t.exit=hit==="SL"?t.sl:t.tp;t.pnl=t.side==="BUY"?t.exit-t.entry:t.entry-t.exit;t.status="CLOSED";t.result=hit;changed=true}});if(changed)save()}function clear(){trades=[];save()}render();return{open,update,clear,render}}
+import{CONFIG}from"./config.js";import{names}from"../strategies/index.js";
+const fmt=n=>Number.isFinite(n)?Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";
+export function createJournal(){
+ let trades=[];
+ try{trades=JSON.parse(localStorage.getItem(CONFIG.storageKey)||"[]")}catch{trades=[]}
+ const render=()=>{
+  const closed=trades.filter(t=>t.status==="CLOSED");
+  const wins=closed.filter(t=>t.result==="TP"||Number(t.pnl)>0).length;
+  const losses=closed.filter(t=>t.result==="SL"||Number(t.pnl)<0).length;
+  const totalPnl=closed.reduce((sum,t)=>sum+(Number.isFinite(Number(t.pnl))?Number(t.pnl):0),0);
+  document.getElementById("tradeCount").textContent=String(trades.length);
+  document.getElementById("profitableCount").textContent=String(wins);
+  document.getElementById("losingCount").textContent=String(losses);
+  document.getElementById("winRate").textContent=closed.length?(wins/closed.length*100).toFixed(1)+"%":"—";
+  const pnl=document.getElementById("totalPnl");
+  pnl.textContent=(totalPnl>=0?"+":"")+fmt(totalPnl)+" USDT";
+  pnl.className=totalPnl>0?"green":totalPnl<0?"red":"";
+  document.getElementById("journal").innerHTML=trades.length?trades.slice().reverse().map(t=>'<tr><td>'+new Date(t.time).toLocaleString("ru-RU")+'</td><td class="'+(t.side==="BUY"?"green":"red")+'">'+t.side+'</td><td>'+fmt(t.entry)+'</td><td>'+fmt(t.sl)+'</td><td>'+fmt(t.tp)+'</td><td>'+fmt(t.exit)+'</td><td class="'+(t.pnl>=0?"green":"red")+'">'+(t.pnl==null?"—":(t.pnl>=0?"+":"")+fmt(t.pnl))+'</td><td>'+(t.status==="OPEN"?(t.trailingActive?"ТРЕЙЛИНГ":"ОТКРЫТА"):t.result==="TP"?"TP":t.result==="TRAILING_STOP"?"ПО СТОПУ":"SL")+'</td></tr>').join(""):'<tr><td colspan="8" class="empty">Пока нет сделок</td></tr>';
+  const stats=names.map(name=>{const related=closed.filter(t=>Array.isArray(t.confirmations)&&t.confirmations.includes(name));const w=related.filter(t=>t.result==="TP"||Number(t.pnl)>0).length;const l=related.filter(t=>t.result==="SL"||Number(t.pnl)<0).length;return{name,total:related.length,w,l,rate:related.length?(w/related.length*100).toFixed(1)+"%":"—"}});
+  document.getElementById("strategyStats").innerHTML=stats.map(s=>'<div class="strategy-stat"><div class="strategy-stat-head"><b>'+s.name+'</b><span>'+s.rate+'</span></div><div class="strategy-stat-detail"><span>Сделок: '+s.total+'</span><span class="green">Плюс: '+s.w+'</span><span class="red">Минус: '+s.l+'</span></div></div>').join("");
+ };
+ const save=()=>{localStorage.setItem(CONFIG.storageKey,JSON.stringify(trades));render()};
+ function open(key,side,entry,sl,tp,confirmations=[]){
+  if(trades.some(t=>t.key===key))return;
+  trades.push({key,time:Date.now(),side,entry,sl,tp,initialTp:tp,trailingDistance:Math.abs(entry-sl),trailingActive:false,confirmations,exit:null,pnl:null,status:"OPEN"});
+  save();
+ }
+ function update(price){
+  let changed=false;
+  trades.forEach(t=>{
+   if(t.status!=="OPEN")return;
+   const distance=Number.isFinite(Number(t.trailingDistance))&&Number(t.trailingDistance)>0?Number(t.trailingDistance):Math.abs(Number(t.entry)-Number(t.sl));
+   if(!t.trailingActive){
+    const initialStopHit=t.side==="BUY"?price<=t.sl:price>=t.sl;
+    const firstTargetHit=t.side==="BUY"?price>=t.tp:price<=t.tp;
+    if(initialStopHit){
+     t.exit=Number(t.sl);t.pnl=t.side==="BUY"?t.exit-t.entry:t.entry-t.exit;t.status="CLOSED";t.result="SL";changed=true;return;
+    }
+    if(firstTargetHit){
+     t.trailingActive=true;
+     t.sl=Number(t.tp);
+     changed=true;
+    }
+   }
+   if(t.trailingActive&&distance>0){
+    const nextStop=t.side==="BUY"?price-distance:price+distance;
+    if(t.side==="BUY"&&nextStop>Number(t.sl)){t.sl=nextStop;changed=true}
+    if(t.side==="SELL"&&nextStop<Number(t.sl)){t.sl=nextStop;changed=true}
+    const trailingStopHit=t.side==="BUY"?price<=Number(t.sl):price>=Number(t.sl);
+    if(trailingStopHit){
+     t.exit=Number(t.sl);
+     t.pnl=t.side==="BUY"?t.exit-t.entry:t.entry-t.exit;
+     t.status="CLOSED";t.result="TRAILING_STOP";changed=true;
+    }
+   }
+  });
+  if(changed)save();
+ }
+ function clear(){trades=[];save()}
+ render();
+ return{open,update,clear,render}
+}
