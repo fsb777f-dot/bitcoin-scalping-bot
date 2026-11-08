@@ -50,7 +50,8 @@ async function bybitRequest(path) {
       headers: { "Accept": "application/json" }
     });
   } catch (error) {
-    throw new Error("Bybit network request failed: " + (error?.message || String(error)));
+    const detail = error?.message || error?.cause?.message || JSON.stringify(error) || String(error);
+    throw new Error("Bybit network request failed (" + (error?.name || "Error") + "): " + detail);
   }
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 400);
@@ -81,17 +82,32 @@ async function bybitPrice() {
   return price;
 }
 async function binanceRequest(path) {
-  let response;
-  try {
-    response = await fetch("https://api.binance.com" + path, { headers: { "Accept": "application/json" } });
-  } catch (error) {
-    throw new Error("Binance network request failed: " + (error?.message || String(error)));
+  const hosts = [
+    "https://data-api.binance.vision",
+    "https://api.binance.com",
+    "https://api1.binance.com",
+    "https://api2.binance.com",
+    "https://api3.binance.com"
+  ];
+  const errors = [];
+  for (const host of hosts) {
+    try {
+      const response = await fetch(host + path, {
+        headers: { "Accept": "application/json" },
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!response.ok) {
+        const detail = (await response.text()).slice(0, 250);
+        errors.push(host + " HTTP " + response.status + ": " + detail);
+        continue;
+      }
+      return await response.json();
+    } catch (error) {
+      const detail = error?.message || error?.cause?.message || JSON.stringify(error) || String(error);
+      errors.push(host + " " + (error?.name || "Error") + ": " + detail);
+    }
   }
-  if (!response.ok) {
-    const detail = (await response.text()).slice(0, 400);
-    throw new Error("Binance HTTP " + response.status + " " + path.split("?")[0] + ": " + detail);
-  }
-  return response.json();
+  throw new Error("All Binance market-data hosts failed for " + path.split("?")[0] + ". " + errors.join(" | "));
 }
 async function binanceCandles(timeframe) {
   const interval = timeframe === "5m" ? "5m" : "1m";
@@ -226,7 +242,12 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runScan(env).catch(async error => {
       const detail = error?.message || String(error);
-      console.error("Scheduled scan failed: " + detail + " | " + (error?.stack || ""));
+      console.error("Scheduled scan failed", {
+        name: error?.name || null,
+        message: detail,
+        cause: error?.cause?.message || null,
+        stack: error?.stack || null
+      });
       try {
         await saveState(env, {
           side: "WAIT", count: 0, entry: null, sl: null, tp: null,
