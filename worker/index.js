@@ -428,12 +428,6 @@ async function runScan(env) {
     : sells >= required && sells > buys ? "SELL" : "WAIT"
     : "WAIT";
   await updateOpenTrades(env, price);
-  try {
-    await runTestModule(env, candles, price, settings.timeframe);
-  } catch (error) {
-    // Experimental test failures must not interrupt the classic scanner or AI trader.
-    console.error("Isolated test module failed", error?.message || String(error));
-  }
   let performance = [];
   if (settings.aiEnabled) {
     try {
@@ -502,6 +496,12 @@ async function runScan(env) {
     })),
     market_source: source, scan_ok: true, last_error: null
   });
+  // Run experiments only after the production scanner and AI state have been persisted.
+  try {
+    await runTestModule(env, candles, price, settings.timeframe);
+  } catch (error) {
+    console.error("Isolated test module failed", error?.message || String(error));
+  }
   return { ok: true, price, normalSide, aiSide, activeCount, required, source, aiEnabled: settings.aiEnabled };
 }
 
@@ -534,7 +534,7 @@ export default {
         const [state, settings, trades] = await Promise.all([
           db(env, "test_state?id=eq.1&select=*"),
           db(env, "test_settings?id=eq.1&select=*"),
-          db(env, "test_trades?select=*&order=trade_time.desc&limit=100")
+          db(env, "test_trades?select=*&order=trade_time.desc&limit=1000")
         ]);
         return reply({
           state: state?.[0] || null,
