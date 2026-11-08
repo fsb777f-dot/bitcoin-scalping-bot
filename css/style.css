@@ -70,3 +70,11 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 .switch input:checked+.switch-slider{background:#168b68}
 .switch input:checked+.switch-slider:before{transform:translateX(18px)}
 .switch input:focus-visible+.switch-slider{outline:2px solid #5476a8;outline-offset:2px}
+
+/* Adaptive AI analyst panel */
+.ai-panel{border-color:#344b69;background:linear-gradient(145deg,#111c2c,#111827)}
+.ai-control{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px;background:#0c1320;border:1px solid var(--line);border-radius:11px}
+.ai-control b{font-size:13px}.ai-control .notice{margin:6px 0 0;max-width:600px}
+.ai-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:9px}
+.ai-metrics .metric b{font-size:16px}
+.ai-panel .notice{line-height:1.45}
