@@ -21,7 +21,7 @@ function supabaseHeaders(env, extra = {}) {
   };
 }
 async function db(env, path, init = {}) {
-  const base = env.SUPABASE_URL.replace(/\/+$/, "");
+  const base = (env.SUPABASE_URL || "https://pycdhpsmxhmvuyqerotb.supabase.co").replace(/\/+$/, "");
   const response = await fetch(base + "/rest/v1/" + path, {
     ...init,
     headers: supabaseHeaders(env, init.headers || {})
