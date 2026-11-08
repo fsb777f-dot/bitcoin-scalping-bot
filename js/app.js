@@ -5,7 +5,7 @@ import{supabase}from"./supabase.js";
 const $=id=>document.getElementById(id);
 const fmt=n=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n))?Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";
 const WORKER="https://bitcoin-scalping-bot.fsb777f.workers.dev";
-let tf="1m",chart=createMarketChart($("chart")),settings=null,serverState=null,polling=false;
+let tf="1m",chart=createMarketChart($("chart")),settings=null,serverState=null,polling=false,previousPrice=null;
 const journal=createJournal(supabase);
 const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),consensus_enabled:true,required_matches:3,risk_reward:2});
 function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"TradingView график":"График не загрузился")}
@@ -72,7 +72,8 @@ async function pollState(){
 }
 function updatePrice(p){
  $("price").textContent=fmt(p);
- if(lastClose){const d=(p-lastClose)/lastClose*100;$("priceChange").textContent=(d>=0?"+":"")+d.toFixed(2)+"%";$("priceChange").className="change "+(d>=0?"green":"red")}
+ if(previousPrice){const d=(p-previousPrice)/previousPrice*100;$("priceChange").textContent=(d>=0?"+":"")+d.toFixed(2)+"%";$("priceChange").className="change "+(d>=0?"green":"red")}
+ previousPrice=p;
 }
 async function startChart(){
  try{
