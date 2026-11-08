@@ -1,4 +1,4 @@
-name = "bitcoin-scalping-server"
+name = "bitcoin-scalping-bot"
 main = "worker/index.js"
 compatibility_date = "2026-11-08"
 
