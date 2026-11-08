@@ -29,7 +29,8 @@ export function createJournal(){
   let changed=false;
   trades.forEach(t=>{
    if(t.status!=="OPEN")return;
-   const distance=Number.isFinite(Number(t.trailingDistance))&&Number(t.trailingDistance)>0?Number(t.trailingDistance):Math.abs(Number(t.entry)-Number(t.sl));
+   if(!(Number(t.trailingDistance)>0)){t.trailingDistance=Math.abs(Number(t.entry)-Number(t.sl));changed=true}
+   const distance=Number(t.trailingDistance);
    if(!t.trailingActive){
     const initialStopHit=t.side==="BUY"?price<=t.sl:price>=t.sl;
     const firstTargetHit=t.side==="BUY"?price>=t.tp:price<=t.tp;
