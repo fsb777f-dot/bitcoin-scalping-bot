@@ -1,18 +1,68 @@
-const base="https://api.bybit.com";
-export async function loadCandles(tf){
-  const interval=tf==="5m"?"5":"1";
-  const r=await fetch(base+"/v5/market/kline?category=spot&symbol=BTCUSDT&interval="+interval+"&limit=300");
-  if(!r.ok)throw Error("Bybit HTTP "+r.status);
-  const j=await r.json();
-  if(j.retCode!==0)throw Error("Bybit: "+j.retMsg);
-  return (j.result.list||[]).slice().reverse().map(k=>({time:Number(k[0])/1000,open:+k[1],high:+k[2],low:+k[3],close:+k[4],volume:+k[5]}));
+import { CONFIG } from "../js/config.js";
+
+const hosts = [
+  "https://api.binance.com",
+  "https://data-api.binance.vision",
+  "https://api1.binance.com",
+  "https://api2.binance.com",
+  "https://api3.binance.com"
+];
+
+async function binanceFetch(path) {
+  const errors = [];
+  for (const host of hosts) {
+    try {
+      const response = await fetch(host + path, { headers: { "Accept": "application/json" } });
+      if (!response.ok) {
+        errors.push(host + " HTTP " + response.status);
+        continue;
+      }
+      return await response.json();
+    } catch (error) {
+      errors.push(host + ": " + (error?.message || String(error)));
+    }
+  }
+  throw new Error("Binance market data unavailable: " + errors.join(" | "));
 }
-export function connectMarket(tf,onCandle,onStatus){
-  const interval=tf==="5m"?"5":"1";
-  const ws=new WebSocket("wss://stream.bybit.com/v5/public/spot");
-  ws.onopen=()=>{onStatus?.(true);ws.send(JSON.stringify({op:"subscribe",args:["kline."+interval+".BTCUSDT"]}))};
-  ws.onmessage=e=>{try{const msg=JSON.parse(e.data);if(!msg.topic||!msg.topic.startsWith("kline."))return;for(const k of msg.data||[])onCandle({time:Number(k.start)/1000,open:+k.open,high:+k.high,low:+k.low,close:+k.close,volume:+k.volume},!!k.confirm)}catch(err){console.error(err)}};
-  ws.onerror=()=>onStatus?.(false);
-  ws.onclose=()=>onStatus?.(false);
+
+export async function loadCandles(tf) {
+  const interval = tf === "5m" ? "5m" : "1m";
+  const raw = await binanceFetch(
+    "/api/v3/klines?symbol=" + CONFIG.symbol + "&interval=" + interval + "&limit=300"
+  );
+  if (!Array.isArray(raw) || raw.length < 60) throw new Error("Binance returned too few candles");
+  return raw.map(k => ({
+    time: Number(k[0]) / 1000,
+    open: Number(k[1]),
+    high: Number(k[2]),
+    low: Number(k[3]),
+    close: Number(k[4]),
+    volume: Number(k[5])
+  }));
+}
+
+export function connectMarket(tf, onCandle, onStatus) {
+  const interval = tf === "5m" ? "5m" : "1m";
+  const ws = new WebSocket(CONFIG.stream + "/" + CONFIG.symbol.toLowerCase() + "@kline_" + interval);
+  ws.onopen = () => onStatus?.(true);
+  ws.onmessage = event => {
+    try {
+      const message = JSON.parse(event.data);
+      const k = message.k;
+      if (!k) return;
+      onCandle({
+        time: Number(k.t) / 1000,
+        open: Number(k.o),
+        high: Number(k.h),
+        low: Number(k.l),
+        close: Number(k.c),
+        volume: Number(k.v)
+      }, Boolean(k.x));
+    } catch (error) {
+      console.error("Binance WebSocket message error:", error);
+    }
+  };
+  ws.onerror = () => onStatus?.(false);
+  ws.onclose = () => onStatus?.(false);
   return ws;
 }
