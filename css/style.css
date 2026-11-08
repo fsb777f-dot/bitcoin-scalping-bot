@@ -78,3 +78,6 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 .ai-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:9px}
 .ai-metrics .metric b{font-size:16px}
 .ai-panel .notice{line-height:1.45}
+
+.ai-strategy-flag{font-size:9px;white-space:nowrap;min-width:74px;text-align:right}
+@media(max-width:600px){.ai-strategy-flag{min-width:0;text-align:left}}
