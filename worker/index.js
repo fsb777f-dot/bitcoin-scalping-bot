@@ -375,7 +375,7 @@ async function runScan(env) {
     : "WAIT";
   await updateOpenTrades(env, price);
   const performance = settings.aiEnabled ? await getStrategyPerformance(env) : [];
-  const ai = settings.aiEnabled ? aiDecision(results, settings.enabled, performance) : null;
+  const ai = settings.aiEnabled ? aiDecision(results, names.map(() => true), performance) : null;
   const candle = candles[candles.length - 1];
   const slDistance = context.atr * 1.2;
 
