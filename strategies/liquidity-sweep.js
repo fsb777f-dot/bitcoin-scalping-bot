@@ -1,0 +1,21 @@
+export const name="Liquidity Sweep";
+export default c=>{
+ const candles=c.candles;
+ if(!Array.isArray(candles)||candles.length<25)return"WAIT";
+ const current=candles.at(-1);
+ const prior=candles.slice(-21,-1);
+ const liquidityHigh=Math.max(...prior.map(x=>x.high));
+ const liquidityLow=Math.min(...prior.map(x=>x.low));
+ const range=current.high-current.low;
+ if(!(range>0))return"WAIT";
+ const body=Math.abs(current.close-current.open);
+ const lowerWick=Math.min(current.open,current.close)-current.low;
+ const upperWick=current.high-Math.max(current.open,current.close);
+ const atrValue=Number(c.atr)||0;
+ const minSweep=Math.max(atrValue*.05,range*.03);
+ const bullishSweep=current.low<liquidityLow-minSweep&&current.close>liquidityLow&&current.close>current.open&&lowerWick>=body*.5;
+ const bearishSweep=current.high>liquidityHigh+minSweep&&current.close<liquidityHigh&&current.close<current.open&&upperWick>=body*.5;
+ if(bullishSweep)return"BUY";
+ if(bearishSweep)return"SELL";
+ return"WAIT";
+};
