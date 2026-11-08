@@ -4,7 +4,7 @@ import{createJournal}from"./journal.js";
 import{names}from"../strategies/index.js";
 import{supabase}from"./supabase.js";
 const $=id=>document.getElementById(id);
-const fmt=n=>Number.isFinite(Number(n))?Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";
+const fmt=n=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n))?Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";
 const WORKER="https://bitcoin-scalping-bot.fsb777f.workers.dev";
 let tf="1m",candles=[],chart=createMarketChart($("chart")),socket=null,lastClose=null,settings=null,serverState=null,polling=false;
 const journal=createJournal(supabase);
