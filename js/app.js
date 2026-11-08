@@ -51,6 +51,7 @@ async function loadSettings(){
  if(!Number.isInteger(Number(settings.required_matches))||settings.required_matches<1||settings.required_matches>names.length)settings.required_matches=3;
  tf=settings.timeframe==="5m"?"5m":"1m";
  syncControls();
+ renderStrategies();
 }
 async function saveSettings(){
  const payload={id:1,timeframe:tf,enabled_strategies:settings.enabled_strategies,consensus_enabled:settings.consensus_enabled,required_matches:settings.required_matches,risk_reward:settings.risk_reward,updated_at:new Date().toISOString()};
