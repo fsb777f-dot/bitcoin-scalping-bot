@@ -44,11 +44,24 @@ async function getSettings(env) {
   };
 }
 async function bybitRequest(path) {
-  const response = await fetch("https://api.bybit.com" + path, {
-    headers: { "Accept": "application/json" }
-  });
-  if (!response.ok) throw new Error("Bybit " + path.split("?")[0] + " HTTP " + response.status);
-  const data = await response.json();
+  let response;
+  try {
+    response = await fetch("https://api.bybit.com" + path, {
+      headers: { "Accept": "application/json" }
+    });
+  } catch (error) {
+    throw new Error("Bybit network request failed: " + (error?.message || String(error)));
+  }
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 400);
+    throw new Error("Bybit HTTP " + response.status + " " + path.split("?")[0] + ": " + detail);
+  }
+  let data;
+  try {
+    data = await response.json();
+  } catch (error) {
+    throw new Error("Bybit returned invalid JSON: " + (error?.message || String(error)));
+  }
   if (data.retCode !== 0) throw new Error("Bybit API " + data.retCode + ": " + data.retMsg);
   return data.result;
 }
@@ -170,8 +183,11 @@ async function runScan(env) {
 export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runScan(env).catch(async error => {
-      console.error("Scheduled scan failed:", error);
-      try { await saveState(env, { last_error: String(error), side: "WAIT" }); } catch (e) { console.error(e); }
+      const detail = error?.message || String(error);
+      console.error("Scheduled scan failed:", { message: detail, stack: error?.stack || null });
+      try { await saveState(env, { last_error: detail, side: "WAIT" }); } catch (e) {
+        console.error("Failed to save scan error:", e?.message || String(e));
+      }
     }));
   },
   async fetch(request, env) {
