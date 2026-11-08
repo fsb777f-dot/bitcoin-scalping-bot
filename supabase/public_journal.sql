@@ -24,3 +24,15 @@ create policy "Public can delete shared journal"
   on public.trades for delete to anon, authenticated using (true);
 
 grant select, insert, update, delete on public.trades to anon, authenticated;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'trades'
+  ) then
+    alter publication supabase_realtime add table public.trades;
+  end if;
+end $$;
