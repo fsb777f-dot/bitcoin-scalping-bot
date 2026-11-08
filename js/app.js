@@ -35,19 +35,21 @@ function renderStrategies(){
 function renderSignal(){
  if(!serverState)return;
  const r=serverState;
- $("signal").textContent=r.side||"WAIT";
- $("signal").className="signalbig "+(r.side==="BUY"?"green":r.side==="SELL"?"red":"yellow");
+ const aiActive=!!settings?.ai_enabled&&r.ai_enabled===true;
+ const shownSide=settings?.ai_enabled&&!aiActive?"WAIT":(r.side||"WAIT");
+ $("signal").textContent=shownSide;
+ $("signal").className="signalbig "+(shownSide==="BUY"?"green":shownSide==="SELL"?"red":"yellow");
  $("matches").textContent=(r.count||0)+" совпадений · активно "+(r.active_count||0)+" / "+names.length;
- $("entry").textContent=fmt(r.entry);$("sl").textContent=fmt(r.sl);$("tp").textContent=fmt(r.tp);
+ $("entry").textContent=fmt(settings?.ai_enabled&&!aiActive?null:r.entry);$("sl").textContent=fmt(settings?.ai_enabled&&!aiActive?null:r.sl);$("tp").textContent=fmt(settings?.ai_enabled&&!aiActive?null:r.tp);
  const stamp=r.updated_at?new Date(r.updated_at).toLocaleTimeString("ru-RU"):"—";
- $("signalNote").textContent=r.last_error?"Ошибка сканера: "+r.last_error:(r.ai_enabled?"Решение AI · ":"Обычный сканер · ")+"обновлено "+stamp+". Только виртуальная торговля.";
- $("aiSide").textContent=r.ai_enabled?(r.side||"WAIT"):"OFF";
- $("aiSide").className=r.ai_enabled?(r.side==="BUY"?"green":r.side==="SELL"?"red":"yellow"):"";
- $("aiConfidence").textContent=r.ai_enabled&&r.ai_confidence!=null?r.ai_confidence+"%":"—";
- $("aiSelected").textContent=r.ai_enabled?String((r.ai_selected||[]).length):"0";
- $("aiNote").textContent=r.ai_enabled?(r.ai_reason||"AI анализирует рынок."):"AI выключен. Работает обычный сканер.";
- const perf=r.ai_performance||[],learned=perf.filter(p=>p.trades>=5).length,excluded=(r.ai_excluded||[]).length;
- $("aiLearning").textContent=r.ai_enabled?"Обучение по журналу: "+learned+" стратегий с выборкой от 5 сделок · исключено слабых: "+excluded+".":"Статистика AI появится после закрытия виртуальных сделок.";
+ $("signalNote").textContent=r.last_error?"Ошибка сканера: "+r.last_error:(aiActive?"Решение AI · ":"Обычный сканер · ")+"обновлено "+stamp+". Только виртуальная торговля.";
+ $("aiSide").textContent=settings?.ai_enabled?(aiActive?(r.side||"WAIT"):"ОЖИДАНИЕ"):"OFF";
+ $("aiSide").className=aiActive?(r.side==="BUY"?"green":r.side==="SELL"?"red":"yellow"):"";
+ $("aiConfidence").textContent=aiActive&&r.ai_confidence!=null?r.ai_confidence+"%":"—";
+ $("aiSelected").textContent=aiActive?String((r.ai_selected||[]).length):"0";
+ $("aiNote").textContent=!settings?.ai_enabled?"AI выключен. Работает обычный сканер.":!aiActive?"AI включён. Ожидаем следующий серверный цикл сканирования.":(r.ai_reason||"AI анализирует рынок.");
+ const perf=aiActive?(r.ai_performance||[]):[],learned=perf.filter(p=>p.trades>=5).length,excluded=(r.ai_excluded||[]).length;
+ $("aiLearning").textContent=aiActive?"Обучение по журналу: "+learned+" стратегий с выборкой от 5 сделок · исключено слабых: "+excluded+".":"Статистика AI появится после закрытия виртуальных сделок.";
  renderStrategies();
 }
 async function loadSettings(){
