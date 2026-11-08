@@ -85,3 +85,23 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 
 /* AI has its own bottom-navigation screen */
 .ai-panel{grid-column:1/-1}.ai-levels{margin-top:10px}.nav{gap:8px}.nav button{padding:8px 11px}@media(max-width:600px){.nav{gap:2px}.nav button{padding:8px 9px;font-size:11px}}
+
+
+/* Independent AI virtual-trade journal */
+.ai-journal{margin-top:15px;padding-top:14px;border-top:1px solid var(--line)}
+.ai-journal-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px;font-weight:800;margin-bottom:10px}
+.ai-journal-heading .small{font-weight:500}
+.ai-journal-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.ai-journal-stat{min-width:0;padding:10px;background:#0c1320;border:1px solid var(--line);border-radius:10px}
+.ai-journal-stat small{display:block;color:var(--muted);font-size:10px}
+.ai-journal-stat b{display:block;margin-top:6px;font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.ai-journal-subtitle{font-size:12px;font-weight:750;margin:14px 0 8px}
+.ai-trade-list{display:grid;gap:8px}
+.ai-trade-row{padding:10px;background:#0c1320;border:1px solid var(--line);border-radius:10px;min-width:0}
+.ai-trade-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ai-trade-top b{font-size:12px}.ai-trade-top>span{font-size:10px;font-weight:800}.ai-trade-top time{margin-left:auto;color:var(--muted);font-size:10px}
+.ai-trade-values{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:9px}
+.ai-trade-values span{font-size:10px;color:var(--muted);min-width:0}
+.ai-trade-values b{display:block;color:var(--text);font-size:11px;margin-top:4px;overflow-wrap:anywhere}
+.ai-trade-values b.green{color:var(--green)}.ai-trade-values b.red{color:var(--red)}
+@media(max-width:390px){.ai-journal-stats{gap:6px}.ai-journal-stat{padding:8px}.ai-journal-stat b{font-size:16px}.ai-trade-values{gap:5px}}
