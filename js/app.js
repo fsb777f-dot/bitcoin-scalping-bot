@@ -6,6 +6,7 @@ const $=id=>document.getElementById(id);
 const fmt=n=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n))?Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";
 const WORKER="https://bitcoin-scalping-bot.fsb777f.workers.dev";
 let tf="1m",chart=createMarketChart($("chart")),settings=null,serverState=null,polling=false,previousPrice=null;
+let aiJournalLoading=false;
 const journal=createJournal(supabase);
 const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),consensus_enabled:true,required_matches:3,risk_reward:2,ai_enabled:false});
 function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"TradingView график":"График не загрузился")}
@@ -58,6 +59,38 @@ function renderSignal(){
  $("aiLearning").textContent=aiActive?"AI анализирует собственные виртуальные сделки: "+learned+" стратегий с выборкой от 5 сделок · исключено слабых: "+excluded+". Уверенность — доля голосов, не вероятность прибыли.":"Статистика AI появится после закрытия его виртуальных сделок.";
  renderStrategies();
 }
+async function loadAiJournal(){
+ if(aiJournalLoading)return;aiJournalLoading=true;
+ try{
+  const {data,error}=await supabase.from("trades")
+   .select("trade_key,trade_time,side,entry,sl,tp,exit,pnl,status,result")
+   .like("trade_key","ai:%").order("trade_time",{ascending:false});
+  if(error)throw error;
+  const rows=data||[],closed=rows.filter(t=>t.status==="CLOSED");
+  const wins=closed.filter(t=>Number(t.pnl)>0||t.result==="TP").length;
+  const losses=closed.filter(t=>Number(t.pnl)<0||t.result==="SL").length;
+  const decided=wins+losses;
+  const open=rows.filter(t=>t.status==="OPEN").length;
+  const pnl=closed.reduce((sum,t)=>sum+(Number.isFinite(Number(t.pnl))?Number(t.pnl):0),0);
+  $("aiTradeTotal").textContent=String(rows.length);
+  $("aiTradeOpen").textContent=String(open);
+  $("aiTradeWins").textContent=String(wins);
+  $("aiTradeLosses").textContent=String(losses);
+  $("aiWinRate").textContent=decided?(wins/decided*100).toFixed(1)+"%":"—";
+  $("aiPnl").textContent=(pnl>=0?"+":"")+fmt(pnl);
+  $("aiPnl").className=pnl>0?"green":pnl<0?"red":"";
+  $("aiJournalList").innerHTML=rows.length?'<div class="ai-trade-list">'+rows.slice(0,12).map(t=>{
+   const side=String(t.side||"WAIT"),isOpen=t.status==="OPEN",profit=Number(t.pnl)>0||t.result==="TP",loss=Number(t.pnl)<0||t.result==="SL";
+   const result=isOpen?"ОТКРЫТА":profit?"ПРИБЫЛЬ":loss?"УБЫТОК":"ЗАКРЫТА";
+   const pnlText=t.pnl==null?"—":(Number(t.pnl)>=0?"+":"")+fmt(t.pnl);
+   const time=Number(t.trade_time)?new Date(Number(t.trade_time)).toLocaleString("ru-RU"):"—";
+   return '<div class="ai-trade-row"><div class="ai-trade-top"><b class="'+(side==="BUY"?"green":"red")+'">'+side+'</b><span class="'+(isOpen?"yellow":profit?"green":loss?"red":"muted")+'">'+result+'</span><time>'+time+'</time></div><div class="ai-trade-values"><span>Вход <b>'+fmt(t.entry)+'</b></span><span>Выход <b>'+fmt(t.exit)+'</b></span><span>PnL <b class="'+(Number(t.pnl)>0?"green":Number(t.pnl)<0?"red":"")+'">'+pnlText+'</b></span></div></div>';
+  }).join("")+'</div>':'<p class="notice">У AI пока нет виртуальных сделок. Когда появится BUY или SELL, сделки отобразятся здесь.</p>';
+  $("aiJournalNote").textContent="Облачный журнал AI · показаны последние "+Math.min(rows.length,12)+" из "+rows.length+" сделок. PnL учитывает только закрытые сделки.";
+ }catch(error){
+  $("aiJournalNote").textContent="Не удалось загрузить журнал AI: "+error.message;
+ }finally{aiJournalLoading=false}
+}
 async function loadSettings(){
  const {data,error}=await supabase.from("bot_settings").select("*").eq("id",1).maybeSingle();
  if(error)throw error;
@@ -85,6 +118,7 @@ async function pollState(){
   if(serverState.error)throw Error(serverState.error);
   if(Number.isFinite(Number(serverState.price)) && Number(serverState.price)>0)updatePrice(Number(serverState.price));
   renderSignal();
+  loadAiJournal();
  }catch(e){$("signalNote").textContent="Не удалось получить серверный сигнал: "+e.message}
  finally{polling=false}
 }
@@ -142,6 +176,7 @@ document.querySelectorAll(".nav [data-view]").forEach(b=>b.addEventListener("cli
  try{
   await journal.init();
   await loadSettings();
+  await loadAiJournal();
   await startChart();
   await pollState();
   setInterval(pollState,5000);
