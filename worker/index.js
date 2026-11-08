@@ -37,6 +37,7 @@ async function getSettings(env) {
     ? s.enabled_strategies.map(Boolean) : names.map(() => true);
   return {
     timeframe: s.timeframe === "5m" ? "5m" : "1m",
+    aiEnabled: s.ai_enabled === true,
     enabled,
     consensusEnabled: s.consensus_enabled !== false,
     requiredMatches: clamp(s.required_matches ?? 3, 1, names.length),
@@ -317,6 +318,45 @@ async function updateOpenTrades(env, price) {
     });
   }
 }
+async function getStrategyPerformance(env) {
+  const rows = await db(env, "trades?status=eq.CLOSED&select=confirmations,pnl,result,trade_time&order=trade_time.desc&limit=300");
+  return names.map(name => {
+    const relevant = (rows || []).filter(t => Array.isArray(t.confirmations) && t.confirmations.includes(name));
+    const wins = relevant.filter(t => Number(t.pnl) > 0 || t.result === "TP").length;
+    const losses = relevant.filter(t => Number(t.pnl) < 0 || t.result === "SL").length;
+    const total = wins + losses;
+    const winRate = total ? wins / total : null;
+    const provenWeak = total >= 6 && winRate < 0.35;
+    const reliability = total >= 5 ? Math.min(1, total / 10) : 0;
+    const weight = total >= 5 ? clamp(1 + ((winRate ?? 0.5) - 0.5) * 1.4 * reliability, 0.45, 1.5) : 1;
+    return { name, trades: total, wins, losses, win_rate: winRate === null ? null : Number((winRate * 100).toFixed(1)), weight: Number(weight.toFixed(2)), excluded: provenWeak };
+  });
+}
+function aiDecision(results, enabled, performance) {
+  const perf = new Map(performance.map(p => [p.name, p]));
+  let buyWeight = 0, sellWeight = 0, buyCount = 0, sellCount = 0;
+  const voters = [];
+  results.forEach((signal, i) => {
+    if (!enabled[i] || (signal !== "BUY" && signal !== "SELL")) return;
+    const p = perf.get(names[i]);
+    if (p?.excluded) return;
+    const weight = p?.weight || 1;
+    if (signal === "BUY") { buyWeight += weight; buyCount++; }
+    else { sellWeight += weight; sellCount++; }
+    voters.push({ name: names[i], signal, weight });
+  });
+  const totalWeight = buyWeight + sellWeight;
+  const side = buyCount + sellCount < 2 ? "WAIT"
+    : buyWeight > sellWeight && buyWeight / totalWeight >= 0.62 ? "BUY"
+    : sellWeight > buyWeight && sellWeight / totalWeight >= 0.62 ? "SELL" : "WAIT";
+  const selected = voters.filter(v => v.signal === side).map(v => v.name);
+  const confidence = totalWeight ? Math.round(Math.max(buyWeight, sellWeight) / totalWeight * 100) : 0;
+  const excluded = performance.filter(p => p.excluded).map(p => p.name);
+  const reason = side === "WAIT"
+    ? (buyCount + sellCount < 2 ? "Недостаточно подтверждений: нужно минимум две стратегии." : "Голоса стратегий недостаточно согласованы.")
+    : "AI выбрал " + selected.length + " стратегий; доля взвешенных голосов " + confidence + "%.";
+  return { side, count: selected.length, confidence, buy_weight: Number(buyWeight.toFixed(2)), sell_weight: Number(sellWeight.toFixed(2)), selected, excluded, reason, performance };
+}
 async function runScan(env) {
   if (!env.SUPABASE_SECRET_KEY) throw new Error("Set SUPABASE_SECRET_KEY in Worker secrets");
   const settings = await getSettings(env);
@@ -329,37 +369,42 @@ async function runScan(env) {
   const required = settings.consensusEnabled ? settings.requiredMatches : 1;
   const buys = results.filter((s, i) => settings.enabled[i] && s === "BUY").length;
   const sells = results.filter((s, i) => settings.enabled[i] && s === "SELL").length;
-  const side = activeCount >= required
+  const normalSide = activeCount >= required
     ? buys >= required && buys > sells ? "BUY"
     : sells >= required && sells > buys ? "SELL" : "WAIT"
     : "WAIT";
-  const count = side === "BUY" ? buys : side === "SELL" ? sells : Math.max(buys, sells);
+  await updateOpenTrades(env, price);
+  const performance = settings.aiEnabled ? await getStrategyPerformance(env) : [];
+  const ai = settings.aiEnabled ? aiDecision(results, settings.enabled, performance) : null;
+  const side = settings.aiEnabled ? ai.side : normalSide;
+  const confirmations = settings.aiEnabled ? ai.selected : names.filter((_, i) => settings.enabled[i] && results[i] === side);
+  const count = settings.aiEnabled ? ai.count : side === "BUY" ? buys : side === "SELL" ? sells : Math.max(buys, sells);
   const candle = candles[candles.length - 1];
   const slDistance = context.atr * 1.2;
   const entry = side === "WAIT" ? null : price;
   const sl = side === "BUY" ? entry - slDistance : side === "SELL" ? entry + slDistance : null;
   const tp = side === "BUY" ? entry + slDistance * settings.riskReward
     : side === "SELL" ? entry - slDistance * settings.riskReward : null;
-
-  await updateOpenTrades(env, price);
   if (side !== "WAIT") {
-    const tradeKey = "server:" + settings.timeframe + ":" + candle.time + ":" + side;
+    const tradeKey = (settings.aiEnabled ? "ai:" : "server:") + settings.timeframe + ":" + candle.time + ":" + side;
     await insertTradeOnce(env, {
       trade_key: tradeKey, trade_time: Date.now(), side, entry, sl, tp,
       initial_tp: tp, trailing_distance: Math.abs(entry - sl), trailing_active: false,
-      confirmations: names.filter((_, i) => settings.enabled[i] && results[i] === side),
-      exit: null, pnl: null, status: "OPEN", result: null,
+      confirmations, exit: null, pnl: null, status: "OPEN", result: null,
       updated_at: new Date().toISOString()
     });
   }
   await saveState(env, {
     timeframe: settings.timeframe, price, side, count, active_count: activeCount,
-    required_matches: required, consensus_enabled: settings.consensusEnabled,
-    entry, sl, tp, candle_time: candle.time,
-    strategy_results: names.map((name, i) => ({ name, signal: results[i], enabled: settings.enabled[i] })),
+    required_matches: settings.aiEnabled ? 2 : required, consensus_enabled: settings.aiEnabled ? true : settings.consensusEnabled,
+    ai_enabled: settings.aiEnabled, ai_confidence: ai?.confidence ?? null,
+    ai_reason: ai?.reason ?? null, ai_selected: ai?.selected ?? [],
+    ai_excluded: ai?.excluded ?? [], ai_performance: performance,
+    normal_side: normalSide, entry, sl, tp, candle_time: candle.time,
+    strategy_results: names.map((name, i) => ({ name, signal: results[i], enabled: settings.enabled[i], ai_weight: ai?.performance.find(p => p.name === name)?.weight ?? null, ai_excluded: ai?.performance.find(p => p.name === name)?.excluded ?? false })),
     market_source: source, scan_ok: true, last_error: null
   });
-  return { ok: true, price, side, count, activeCount, required, candleTime: candle.time, source };
+  return { ok: true, price, side, count, activeCount, required: settings.aiEnabled ? 2 : required, source, aiEnabled: settings.aiEnabled };
 }
 
 export default {
