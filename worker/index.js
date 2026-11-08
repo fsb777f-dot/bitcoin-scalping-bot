@@ -374,7 +374,22 @@ async function runScan(env) {
     : sells >= required && sells > buys ? "SELL" : "WAIT"
     : "WAIT";
   await updateOpenTrades(env, price);
-  const performance = settings.aiEnabled ? await getStrategyPerformance(env) : [];
+  let performance = [];
+  if (settings.aiEnabled) {
+    try {
+      performance = await getStrategyPerformance(env);
+    } catch (error) {
+      // A statistics-read failure must never stop the live scanner or AI paper trader.
+      console.error("AI performance lookup failed; continuing with neutral strategy weights", {
+        message: error?.message || String(error),
+        stack: error?.stack || null
+      });
+      performance = names.map(name => ({
+        name, trades: 0, wins: 0, losses: 0, win_rate: null,
+        weight: 1, excluded: false
+      }));
+    }
+  }
   const ai = settings.aiEnabled ? aiDecision(results, names.map(() => true), performance) : null;
   const candle = candles[candles.length - 1];
   const slDistance = context.atr * 1.2;
