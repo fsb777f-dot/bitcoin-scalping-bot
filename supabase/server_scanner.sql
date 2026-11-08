@@ -11,6 +11,17 @@ create table if not exists public.bot_settings (
   updated_at timestamptz not null default now()
 );
 alter table public.bot_settings add column if not exists ai_enabled boolean not null default false;
+alter table public.bot_settings add column if not exists ai_enabled boolean not null default false;
+alter table public.bot_state add column if not exists ai_enabled boolean not null default false;
+alter table public.bot_state add column if not exists ai_confidence integer;
+alter table public.bot_state add column if not exists ai_reason text;
+alter table public.bot_state add column if not exists ai_selected jsonb not null default '[]'::jsonb;
+alter table public.bot_state add column if not exists ai_excluded jsonb not null default '[]'::jsonb;
+alter table public.bot_state add column if not exists ai_performance jsonb not null default '[]'::jsonb;
+alter table public.bot_state add column if not exists normal_side text;
+alter table public.bot_state add column if not exists market_source text;
+alter table public.bot_state add column if not exists scan_ok boolean;
+
 insert into public.bot_settings (id, timeframe, enabled_strategies, consensus_enabled, required_matches, risk_reward, ai_enabled)
 values (1, '1m', '[]'::jsonb, true, 3, 2, false)
 on conflict (id) do nothing;
