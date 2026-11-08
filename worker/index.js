@@ -1,9 +1,10 @@
 import { buildContext } from "../js/indicators.js";
 import { strategies, names } from "../strategies/index.js";
+import { evaluateTestStrategies, testRiskLevels, TEST_STRATEGIES } from "../test-module/strategies.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
   "Cache-Control": "no-store"
 };
@@ -318,6 +319,59 @@ async function updateOpenTrades(env, price) {
     });
   }
 }
+async function runTestModule(env, candles, price, timeframe) {
+  // This module uses its own settings, state and trades tables. It never reads or writes
+  // bot_settings, bot_state, or trades.
+  const settingsRows = await db(env, "test_settings?id=eq.1&select=*");
+  const enabled = settingsRows?.[0]?.enabled || { brooks: true, cameron: true, smb: true };
+  const rawSignals = evaluateTestStrategies(candles);
+  const signals = Object.fromEntries(TEST_STRATEGIES.map(s => [s.id, enabled[s.id] === false ? "WAIT" : rawSignals[s.id]]));
+  const candle = candles.at(-1);
+
+  const open = await db(env, "test_trades?status=eq.OPEN&select=*");
+  for (const trade of open || []) {
+    const side = trade.side;
+    const stopped = side === "BUY" ? price <= Number(trade.sl) : price >= Number(trade.sl);
+    const targeted = side === "BUY" ? price >= Number(trade.tp) : price <= Number(trade.tp);
+    if (!stopped && !targeted) continue;
+    const exit = stopped ? Number(trade.sl) : Number(trade.tp);
+    const pnl = side === "BUY" ? exit - Number(trade.entry) : Number(trade.entry) - exit;
+    await db(env, "test_trades?trade_key=eq." + encodeURIComponent(trade.trade_key), {
+      method: "PATCH", headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({
+        exit, pnl, status: "CLOSED", result: stopped ? "SL" : "TP",
+        updated_at: new Date().toISOString()
+      })
+    });
+  }
+
+  for (const strategy of TEST_STRATEGIES) {
+    const side = signals[strategy.id];
+    if (side !== "BUY" && side !== "SELL") continue;
+    const existing = await db(env, "test_trades?strategy=eq." + strategy.id + "&status=eq.OPEN&select=id&limit=1");
+    if (existing?.length) continue;
+    const levels = testRiskLevels(side, price, candles, 2);
+    if (!levels) continue;
+    await db(env, "test_trades?on_conflict=trade_key", {
+      method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify({
+        trade_key: "test:" + strategy.id + ":" + timeframe + ":" + candle.time,
+        strategy: strategy.id, timeframe, candle_time: candle.time, trade_time: Date.now(),
+        side, entry: price, sl: levels.sl, tp: levels.tp, exit: null, pnl: null,
+        status: "OPEN", result: null, updated_at: new Date().toISOString()
+      })
+    });
+  }
+
+  await db(env, "test_state?on_conflict=id", {
+    method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({
+      id: 1, timeframe, price, signals,
+      updated_at: new Date().toISOString()
+    })
+  });
+}
+
 async function getStrategyPerformance(env) {
   const rows = await db(env, "trades?status=eq.CLOSED&trade_key=like.ai%&select=confirmations,pnl,result,trade_time,trade_key&order=trade_time.desc&limit=300");
   return names.map(name => {
@@ -442,6 +496,12 @@ async function runScan(env) {
     })),
     market_source: source, scan_ok: true, last_error: null
   });
+  // Run experiments only after the production scanner and AI state have been persisted.
+  try {
+    await runTestModule(env, candles, price, settings.timeframe);
+  } catch (error) {
+    console.error("Isolated test module failed", error?.message || String(error));
+  }
   return { ok: true, price, normalSide, aiSide, activeCount, required, source, aiEnabled: settings.aiEnabled };
 }
 
@@ -469,6 +529,33 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
     if (url.pathname === "/health") return reply({ ok: true, service: "bitcoin-scalping-server", mode: "VIRTUAL_ONLY" });
+    if (url.pathname === "/api/test-data" && request.method === "GET") {
+      try {
+        const [state, settings, trades] = await Promise.all([
+          db(env, "test_state?id=eq.1&select=*"),
+          db(env, "test_settings?id=eq.1&select=*"),
+          db(env, "test_trades?select=*&order=trade_time.desc&limit=1000")
+        ]);
+        return reply({
+          state: state?.[0] || null,
+          settings: settings?.[0] || { enabled: { brooks: true, cameron: true, smb: true } },
+          trades: trades || []
+        });
+      } catch (e) { return reply({ error: String(e) }, 500); }
+    }
+    if (url.pathname === "/api/test-settings" && request.method === "POST") {
+      try {
+        const body = await request.json();
+        const allowed = ["brooks", "cameron", "smb"];
+        const enabled = {};
+        for (const id of allowed) enabled[id] = body?.enabled?.[id] !== false;
+        await db(env, "test_settings?on_conflict=id", {
+          method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({ id: 1, enabled, updated_at: new Date().toISOString() })
+        });
+        return reply({ ok: true, enabled });
+      } catch (e) { return reply({ error: String(e) }, 500); }
+    }
     if (url.pathname === "/api/state" && request.method === "GET") {
       try {
         const rows = await db(env, "bot_state?id=eq.1&select=*");
