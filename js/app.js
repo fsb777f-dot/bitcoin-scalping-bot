@@ -7,7 +7,7 @@ const fmt=n=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n))?Number(
 const WORKER="https://bitcoin-scalping-bot.fsb777f.workers.dev";
 let tf="1m",chart=createMarketChart($("chart")),settings=null,serverState=null,polling=false,previousPrice=null;
 const journal=createJournal(supabase);
-const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),consensus_enabled:true,required_matches:3,risk_reward:2});
+const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),consensus_enabled:true,required_matches:3,risk_reward:2,ai_enabled:false});
 function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"TradingView график":"График не загрузился")}
 function syncControls(){
  if(!settings)return;
@@ -18,6 +18,9 @@ function syncControls(){
   ?"Для сигнала нужно минимум "+settings.required_matches+" одинаковых подтверждения. Если включённых стратегий меньше — сигнал не откроется."
   :"Совпадения выключены: достаточно сигнала одной включённой стратегии.";
  $("riskReward").value=String(settings.risk_reward);
+ $("aiEnabled").checked=!!settings.ai_enabled;
+ $("aiModeLabel").textContent=settings.ai_enabled?"ВКЛ · АДАПТИВНЫЙ РЕЖИМ":"ВЫКЛ";
+
  $("tfLabel").textContent=tf==="1m"?"1 минута":"5 минут";
  document.querySelectorAll("[data-tf]").forEach(b=>b.classList.toggle("active",b.dataset.tf===tf));
 }
@@ -37,7 +40,14 @@ function renderSignal(){
  $("matches").textContent=(r.count||0)+" совпадений · активно "+(r.active_count||0)+" / "+names.length;
  $("entry").textContent=fmt(r.entry);$("sl").textContent=fmt(r.sl);$("tp").textContent=fmt(r.tp);
  const stamp=r.updated_at?new Date(r.updated_at).toLocaleTimeString("ru-RU"):"—";
- $("signalNote").textContent=r.last_error?"Ошибка сканера: "+r.last_error:"Серверный сигнал · обновлено "+stamp+". Виртуальная торговля, реальные ордера выключены.";
+ $("signalNote").textContent=r.last_error?"Ошибка сканера: "+r.last_error:(r.ai_enabled?"Решение AI · ":"Обычный сканер · ")+"обновлено "+stamp+". Только виртуальная торговля.";
+ $("aiSide").textContent=r.ai_enabled?(r.side||"WAIT"):"OFF";
+ $("aiSide").className=r.ai_enabled?(r.side==="BUY"?"green":r.side==="SELL"?"red":"yellow"):"";
+ $("aiConfidence").textContent=r.ai_enabled&&r.ai_confidence!=null?r.ai_confidence+"%":"—";
+ $("aiSelected").textContent=r.ai_enabled?String((r.ai_selected||[]).length):"0";
+ $("aiNote").textContent=r.ai_enabled?(r.ai_reason||"AI анализирует рынок."):"AI выключен. Работает обычный сканер.";
+ const perf=r.ai_performance||[],learned=perf.filter(p=>p.trades>=5).length,excluded=(r.ai_excluded||[]).length;
+ $("aiLearning").textContent=r.ai_enabled?"Обучение по журналу: "+learned+" стратегий с выборкой от 5 сделок · исключено слабых: "+excluded+".":"Статистика AI появится после закрытия виртуальных сделок.";
  renderStrategies();
 }
 async function loadSettings(){
@@ -53,7 +63,7 @@ async function loadSettings(){
  renderStrategies();
 }
 async function saveSettings(){
- const payload={id:1,timeframe:tf,enabled_strategies:settings.enabled_strategies,consensus_enabled:settings.consensus_enabled,required_matches:settings.required_matches,risk_reward:settings.risk_reward,updated_at:new Date().toISOString()};
+ const payload={id:1,timeframe:tf,enabled_strategies:settings.enabled_strategies,consensus_enabled:settings.consensus_enabled,required_matches:settings.required_matches,risk_reward:settings.risk_reward,ai_enabled:!!settings.ai_enabled,updated_at:new Date().toISOString()};
  const {error}=await supabase.from("bot_settings").upsert(payload,{onConflict:"id"});
  if(error)throw error;
  $("cloudStatus").textContent="Настройки сохранены в облаке · сканер обновит их в ближайшую минуту";
@@ -88,6 +98,12 @@ $("strategies").addEventListener("click",async e=>{
  settings.enabled_strategies[i]=!settings.enabled_strategies[i];
  syncControls();renderStrategies();
  try{await saveSettings()}catch(err){settings.enabled_strategies[i]=!settings.enabled_strategies[i];syncControls();renderStrategies();alert("Не удалось сохранить настройки: "+err.message)}
+});
+$("aiEnabled").addEventListener("change",async e=>{
+ const old=!!settings.ai_enabled;settings.ai_enabled=e.target.checked;syncControls();
+ $("aiModeLabel").textContent=settings.ai_enabled?"ВКЛ · ОЖИДАЕТ СКАНА":"ВЫКЛ";
+ $("aiNote").textContent=settings.ai_enabled?"AI включён. Сервер применит режим при ближайшем сканировании.":"AI выключен. При ближайшем сканировании вернётся обычный режим.";
+ try{await saveSettings()}catch(err){settings.ai_enabled=old;syncControls();alert("Не удалось сохранить режим AI: "+err.message)}
 });
 $("riskReward").addEventListener("change",async e=>{
  const old=settings.risk_reward;settings.risk_reward=Number(e.target.value);
