@@ -124,19 +124,13 @@ async function binancePrice() {
   return price;
 }
 async function getMarketData(timeframe) {
-  try {
-    const [candles, price] = await Promise.all([bybitCandles(timeframe), bybitPrice()]);
-    return { candles, price, source: "Bybit" };
-  } catch (bybitError) {
-    console.error("Bybit unavailable; trying Binance fallback:", bybitError?.message || String(bybitError));
-    try {
-      const [candles, price] = await Promise.all([binanceCandles(timeframe), binancePrice()]);
-      return { candles, price, source: "Binance", fallback_reason: bybitError?.message || String(bybitError) };
-    } catch (binanceError) {
-      throw new Error("Market data unavailable. Bybit: " + (bybitError?.message || String(bybitError)) +
-        " | Binance: " + (binanceError?.message || String(binanceError)));
-    }
-  }
+  // Binance is the primary and consistent market-data source for both
+  // the server scanner and browser chart.
+  const [candles, price] = await Promise.all([
+    binanceCandles(timeframe),
+    binancePrice()
+  ]);
+  return { candles, price, source: "Binance" };
 }
 async function saveState(env, state) {
   await db(env, "bot_state?on_conflict=id", {
