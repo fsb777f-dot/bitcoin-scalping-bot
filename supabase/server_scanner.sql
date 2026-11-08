@@ -7,10 +7,12 @@ create table if not exists public.bot_settings (
   consensus_enabled boolean not null default true,
   required_matches integer not null default 3 check (required_matches between 1 and 41),
   risk_reward numeric not null default 2 check (risk_reward in (1,1.5,2,2.5,3,4)),
+  ai_enabled boolean not null default false,
   updated_at timestamptz not null default now()
 );
-insert into public.bot_settings (id, timeframe, enabled_strategies, consensus_enabled, required_matches, risk_reward)
-values (1, '1m', '[]'::jsonb, true, 3, 2)
+alter table public.bot_settings add column if not exists ai_enabled boolean not null default false;
+insert into public.bot_settings (id, timeframe, enabled_strategies, consensus_enabled, required_matches, risk_reward, ai_enabled)
+values (1, '1m', '[]'::jsonb, true, 3, 2, false)
 on conflict (id) do nothing;
 
 create table if not exists public.bot_state (
