@@ -1,4 +1,4 @@
-export const name = "Fibonacci Retracement";
+export const name = "Fibonacci Pullback";
 
 // Trend-following pullback strategy.
 // Uses the latest 50 completed candles to identify the active swing and
@@ -40,7 +40,6 @@ export default function fibonacciRetracement(c) {
   const levels = [0.382, 0.5, 0.618, 0.786];
 
   if (trend === 1) {
-    // An up-swing must run from the low to the later high.
     if (lowIndex >= highIndex) return "WAIT";
     for (const ratio of levels) {
       const level = high - range * ratio;
@@ -51,7 +50,6 @@ export default function fibonacciRetracement(c) {
       if (reclaimed || rejection) return "BUY";
     }
   } else {
-    // A down-swing must run from the high to the later low.
     if (highIndex >= lowIndex) return "WAIT";
     for (const ratio of levels) {
       const level = low + range * ratio;
