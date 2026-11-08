@@ -81,3 +81,6 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 
 .ai-strategy-flag{font-size:9px;white-space:nowrap;min-width:74px;text-align:right}
 @media(max-width:600px){.ai-strategy-flag{min-width:0;text-align:left}}
+
+/* AI has its own bottom-navigation screen */
+.ai-panel{grid-column:1/-1}.ai-levels{margin-top:10px}.nav{gap:8px}.nav button{padding:8px 11px}@media(max-width:600px){.nav{gap:2px}.nav button{padding:8px 9px;font-size:11px}}
