@@ -43,11 +43,29 @@ async function getSettings(env) {
     riskReward: [1, 1.5, 2, 2.5, 3, 4].includes(Number(s.risk_reward)) ? Number(s.risk_reward) : 2
   };
 }
+async function binanceRequest(path) {
+  // The market-data-only host is often more reliable from Cloudflare Workers
+  // than Binance's trading API hostname.
+  const hosts = ["https://data-api.binance.vision", "https://api.binance.com"];
+  let lastError = null;
+  for (const host of hosts) {
+    try {
+      const r = await fetch(host + path, {
+        headers: { "Accept": "application/json" }
+      });
+      if (!r.ok) {
+        lastError = new Error("Binance " + path.split("?")[0] + " HTTP " + r.status + " via " + host);
+        continue;
+      }
+      return await r.json();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Binance market data unavailable");
+}
 async function binanceCandles(timeframe) {
-  const url = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=" + timeframe + "&limit=300";
-  const r = await fetch(url, { headers: { "Accept": "application/json" } });
-  if (!r.ok) throw new Error("Binance klines HTTP " + r.status);
-  const raw = await r.json();
+  const raw = await binanceRequest("/api/v3/klines?symbol=BTCUSDT&interval=" + timeframe + "&limit=300");
   // Ignore the still-forming candle: evaluate only completed candles.
   return raw.slice(0, -1).map(k => ({
     time: k[0] / 1000, open: +k[1], high: +k[2], low: +k[3],
@@ -55,9 +73,8 @@ async function binanceCandles(timeframe) {
   }));
 }
 async function currentPrice() {
-  const r = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
-  if (!r.ok) throw new Error("Binance ticker HTTP " + r.status);
-  return Number((await r.json()).price);
+  const data = await binanceRequest("/api/v3/ticker/price?symbol=BTCUSDT");
+  return Number(data.price);
 }
 async function saveState(env, state) {
   await db(env, "bot_state?on_conflict=id", {
@@ -174,10 +191,6 @@ export default {
         const rows = await db(env, "bot_state?id=eq.1&select=*");
         return reply(rows?.[0] || { ok: true, message: "Сканер ещё не выполнил первый проход" });
       } catch (e) { return reply({ error: String(e) }, 500); }
-    }
-    if (url.pathname === "/api/run-once" && request.method === "POST") {
-      try { return reply(await runScan(env)); }
-      catch (e) { return reply({ error: String(e) }, 500); }
     }
     return reply({ error: "Not found" }, 404);
   }
