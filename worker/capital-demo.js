@@ -52,13 +52,11 @@ export async function capitalDemoStatus(env) {
     mode: "DEMO",
     account: account ? {
       currency: account.currency || detailsResult.data?.currency || null,
-      balance: account.balance?.balance ?? accountInfo.balance ?? null,
-      available: account.balance?.available ?? accountInfo.available ?? null,
+      balanceAvailable: account.balance?.balance != null || accountInfo.balance != null,
       status: account.status || null
     } : {
       currency: detailsResult.data?.currency || null,
-      balance: accountInfo.balance ?? null,
-      available: accountInfo.available ?? null
+      balanceAvailable: accountInfo.balance != null
     },
     bitcoin: bitcoin ? {
       found: true,
