@@ -138,8 +138,8 @@ export async function loadMarketAnalysis() {
     price,
     candles: frames["1m"].candles,
     analysis: {
-      source: "Kraken",
-      symbol: "BTC/USD",
+      source: "Binance",
+      symbol: "BTC/USDT",
       updated_at: new Date().toISOString(),
       timeframes: Object.fromEntries(Object.entries(frames).map(([id, value]) => [id, value.analysis]))
     }
