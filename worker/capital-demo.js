@@ -83,7 +83,7 @@ function capitalTime(value) {
   return Number.isFinite(date.getTime()) ? Math.floor(date.getTime() / 1000) : null;
 }
 
-export async function capitalDemoMarketData(env) {
+export async function capitalDemoMarketData(env, timeframe = "1m") {
   if (!env.CAPITAL_API_KEY || !env.CAPITAL_IDENTIFIER || !env.CAPITAL_PASSWORD) {
     throw new Error("Capital.com secrets are incomplete");
   }
@@ -103,7 +103,7 @@ export async function capitalDemoMarketData(env) {
   const auth = { CST: cst, "X-SECURITY-TOKEN": security };
   const [marketResult, historyResult] = await Promise.all([
     request("/markets/BTCUSD", auth),
-    request("/prices/BTCUSD?resolution=MINUTE&max=300", auth)
+    request("/prices/BTCUSD?resolution=" + (timeframe === "5m" ? "MINUTE_5" : "MINUTE") + "&max=300", auth)
   ]);
   const snapshot = marketResult.data?.snapshot || {};
   const bid = Number(snapshot.bid);
