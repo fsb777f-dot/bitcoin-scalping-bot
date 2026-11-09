@@ -38,6 +38,15 @@ async function runTestScan(env) {
   const signals = Object.fromEntries(TEST_STRATEGIES.map(s => [
     s.id, enabled[s.id] === false ? "WAIT" : raw[s.id]
   ]));
+  // One combined decision: at least two of the three enabled strategies must agree.
+  const votes = TEST_STRATEGIES
+    .filter(s => enabled[s.id] !== false && (signals[s.id] === "BUY" || signals[s.id] === "SELL"))
+    .map(s => ({ id: s.id, side: signals[s.id] }));
+  const buyVotes = votes.filter(v => v.side === "BUY");
+  const sellVotes = votes.filter(v => v.side === "SELL");
+  const consensusSide = buyVotes.length >= 2 && buyVotes.length > sellVotes.length ? "BUY"
+    : sellVotes.length >= 2 && sellVotes.length > buyVotes.length ? "SELL" : "WAIT";
+  const confirmations = votes.filter(v => v.side === consensusSide).map(v => v.id);
 
   const tf1 = analysis.timeframes["1m"], tf5 = analysis.timeframes["5m"], tf15 = analysis.timeframes["15m"];
   analysis.strategy_context = Object.fromEntries(TEST_STRATEGIES.map(strategy => {
@@ -72,27 +81,25 @@ async function runTestScan(env) {
     });
   }
 
-  for (const strategy of TEST_STRATEGIES) {
-    const side = signals[strategy.id];
-    if (side !== "BUY" && side !== "SELL") continue;
-    const existing = await db(env, "test_trades?strategy=eq." + strategy.id + "&status=eq.OPEN&select=id&limit=1");
-    if (existing?.length) continue;
-    const levels = testRiskLevels(side, price, candles, 2);
-    if (!levels) continue;
-    await db(env, "test_trades?on_conflict=trade_key", {
-      method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
-      body: JSON.stringify({
-        trade_key: "test:" + strategy.id + ":1m:" + candle.time,
-        strategy: strategy.id, timeframe: "1m", candle_time: candle.time, trade_time: Date.now(),
-        side, entry: price, sl: levels.sl, tp: levels.tp, exit: null, pnl: null,
-        status: "OPEN", result: null, updated_at: new Date().toISOString()
-      })
-    });
+  if (consensusSide === "BUY" || consensusSide === "SELL") {
+    const existing = await db(env, "test_trades?strategy=eq.consensus&status=eq.OPEN&select=id&limit=1");
+    if (!existing?.length) {
+      const levels = testRiskLevels(consensusSide, price, candles, 2);
+      if (levels) await db(env, "test_trades?on_conflict=trade_key", {
+        method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+        body: JSON.stringify({
+          trade_key: "test:consensus:1m:" + candle.time,
+          strategy: "consensus", confirmations, timeframe: "1m", candle_time: candle.time, trade_time: Date.now(),
+          side: consensusSide, entry: price, sl: levels.sl, tp: levels.tp, exit: null, pnl: null,
+          status: "OPEN", result: null, updated_at: new Date().toISOString()
+        })
+      });
+    }
   }
 
   await db(env, "test_state?on_conflict=id", {
     method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ id: 1, timeframe: "1m", price, signals, analysis, updated_at: new Date().toISOString() })
+    body: JSON.stringify({ id: 1, timeframe: "1m", price, signals: { ...signals, consensus: consensusSide, confirmations }, analysis, updated_at: new Date().toISOString() })
   });
   return { ok: true, price, signals, analysis };
 }
