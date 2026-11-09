@@ -85,14 +85,14 @@ async function loadAiJournal(){
   $("aiWinRate").textContent=decided?(wins/decided*100).toFixed(1)+"%":"—";
   $("aiPnl").textContent=(pnl>=0?"+":"")+fmt(pnl);
   $("aiPnl").className=pnl>0?"green":pnl<0?"red":"";
-  $("aiJournalList").innerHTML=rows.length?'<div class="ai-trade-list">'+rows.slice(0,12).map(t=>{
+  $("aiJournalList").innerHTML=rows.length?'<div class="ai-trade-list">'+rows.slice(0,100).map(t=>{
    const side=String(t.side||"WAIT"),isOpen=t.status==="OPEN",profit=Number(t.pnl)>0||t.result==="TP",loss=Number(t.pnl)<0||t.result==="SL";
    const result=isOpen?"ОТКРЫТА":profit?"ПРИБЫЛЬ":loss?"УБЫТОК":"ЗАКРЫТА";
    const pnlText=t.pnl==null?"—":(Number(t.pnl)>=0?"+":"")+fmt(t.pnl);
    const time=Number(t.trade_time)?new Date(Number(t.trade_time)).toLocaleString("ru-RU"):"—";
    return '<div class="ai-trade-row"><div class="ai-trade-top"><b class="'+(side==="BUY"?"green":"red")+'">'+side+'</b><span class="'+(isOpen?"yellow":profit?"green":loss?"red":"muted")+'">'+result+'</span><time>'+time+'</time></div><div class="ai-trade-values"><span>Вход <b>'+fmt(t.entry)+'</b></span><span>Выход <b>'+fmt(t.exit)+'</b></span><span>PnL <b class="'+(Number(t.pnl)>0?"green":Number(t.pnl)<0?"red":"")+'">'+pnlText+'</b></span></div></div>';
   }).join("")+'</div>':'<p class="notice">У AI пока нет виртуальных сделок. Когда появится BUY или SELL, сделки отобразятся здесь.</p>';
-  $("aiJournalNote").textContent="Облачный журнал AI · показаны последние "+Math.min(rows.length,12)+" из "+rows.length+" сделок. PnL учитывает только закрытые сделки.";
+  $("aiJournalNote").textContent="Облачный журнал AI · показаны последние "+Math.min(rows.length,100)+" из "+rows.length+" сделок. PnL учитывает только закрытые сделки.";
  }catch(error){
   $("aiJournalNote").textContent="Не удалось загрузить журнал AI: "+error.message;
  }finally{aiJournalLoading=false}
@@ -171,6 +171,20 @@ document.querySelectorAll("[data-tf]").forEach(b=>b.addEventListener("click",asy
  const old=tf;tf=b.dataset.tf;settings.timeframe=tf;syncControls();
  try{await saveSettings();await startChart()}catch(e){tf=old;settings.timeframe=old;syncControls();alert("Не удалось изменить таймфрейм: "+e.message)}
 }));
+$("clearAiJournal").addEventListener("click",async()=>{
+ const button=$("clearAiJournal");
+ if(!confirm("Очистить только журнал AI? Все виртуальные сделки AI, включая открытые, будут удалены. Их дальнейшее закрытие отслеживаться не будет. История обучения AI по этим сделкам тоже начнётся заново. Обычный журнал и тестовый модуль не затрагиваются."))return;
+ button.disabled=true;button.textContent="Очищаем…";
+ try{
+  const {error}=await supabase.from("trades").delete().like("trade_key","ai:%");
+  if(error)throw error;
+  await loadAiJournal();
+  $("aiJournalNote").textContent="Журнал AI очищен. Новые виртуальные сделки будут записываться с ближайших сканирований.";
+ }catch(error){
+  $("aiJournalNote").textContent="Не удалось очистить журнал AI: "+error.message;
+  alert("Ошибка очистки журнала AI: "+error.message);
+ }finally{button.disabled=false;button.textContent="Очистить журнал AI"}
+});
 $("clearJournal").addEventListener("click",async()=>{
  if(confirm("Удалить общий журнал на всех устройствах?"))try{await journal.clear()}catch(e){alert("Ошибка: "+e.message)}
 });
