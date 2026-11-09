@@ -214,7 +214,11 @@ async function coinbasePrice() {
   if (!Number.isFinite(price) || price <= 0) throw new Error("Coinbase returned an invalid BTC/USD price");
   return price;
 }
-async function getMarketData(timeframe) {
+async function getMarketData(env, timeframe) {
+  return capitalDemoMarketData(env, timeframe);
+}
+
+async function getLegacyMarketData(timeframe) {
   const sources = [
     {
       name: "Kraken",
@@ -286,9 +290,12 @@ async function patchTrade(env, key, patch) {
     body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() })
   });
 }
-async function updateOpenTrades(env, price) {
+async function updateOpenTrades(env, bid, ask) {
   const open = await db(env, "trades?status=eq.OPEN&select=*");
   for (const t of open || []) {
+    // A BUY closes at Bid; a SELL closes at Ask. Entry prices are stored at the
+    // opposite side of the quote, so the spread is included exactly once.
+    const price = t.side === "BUY" ? bid : ask;
     let sl = Number(t.sl);
     const distance = Number(t.trailing_distance) || Math.abs(Number(t.entry) - sl);
     let trailingActive = Boolean(t.trailing_active);
@@ -361,7 +368,7 @@ function aiDecision(results, enabled, performance) {
 async function runScan(env) {
   if (!env.SUPABASE_SECRET_KEY) throw new Error("Set SUPABASE_SECRET_KEY in Worker secrets");
   const settings = await getSettings(env);
-  const market = await getMarketData(settings.timeframe);
+  const market = await getMarketData(env, settings.timeframe);
   const { candles, price, source } = market;
   if (candles.length < 60) throw new Error("Not enough completed candles");
   const context = buildContext(candles);
@@ -374,7 +381,7 @@ async function runScan(env) {
     ? buys >= required && buys > sells ? "BUY"
     : sells >= required && sells > buys ? "SELL" : "WAIT"
     : "WAIT";
-  await updateOpenTrades(env, price);
+  await updateOpenTrades(env, market.bid, market.ask);
   let performance = [];
   if (settings.aiEnabled) {
     try {
@@ -396,7 +403,7 @@ async function runScan(env) {
   const slDistance = context.atr * 1.2;
 
   // The classic scanner always makes its own decision and records its own virtual trade.
-  const normalEntry = normalSide === "WAIT" ? null : price;
+  const normalEntry = normalSide === "BUY" ? market.ask : normalSide === "SELL" ? market.bid : null;
   const normalSl = normalSide === "BUY" ? normalEntry - slDistance : normalSide === "SELL" ? normalEntry + slDistance : null;
   const normalTp = normalSide === "BUY" ? normalEntry + slDistance * settings.riskReward
     : normalSide === "SELL" ? normalEntry - slDistance * settings.riskReward : null;
@@ -412,7 +419,8 @@ async function runScan(env) {
 
   // AI is an independent paper trader. Its switch never changes the classic scanner.
   const aiSide = ai?.side || "WAIT";
-  const aiEntry = settings.aiEnabled && aiSide !== "WAIT" ? price : null;
+  const aiEntry = settings.aiEnabled && aiSide === "BUY" ? market.ask
+    : settings.aiEnabled && aiSide === "SELL" ? market.bid : null;
   const aiSl = aiSide === "BUY" ? aiEntry - slDistance : aiSide === "SELL" ? aiEntry + slDistance : null;
   const aiTp = aiSide === "BUY" ? aiEntry + slDistance * settings.riskReward
     : aiSide === "SELL" ? aiEntry - slDistance * settings.riskReward : null;
@@ -441,7 +449,7 @@ async function runScan(env) {
       ai_weight: ai?.performance.find(p => p.name === name)?.weight ?? null,
       ai_excluded: ai?.performance.find(p => p.name === name)?.excluded ?? false
     })),
-    market_source: source, scan_ok: true, last_error: null
+    market_source: source, bid: market.bid, ask: market.ask, spread: market.spread, scan_ok: true, last_error: null
   });
   return { ok: true, price, normalSide, aiSide, activeCount, required, source, aiEnabled: settings.aiEnabled };
 }
