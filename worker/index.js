@@ -467,7 +467,12 @@ async function runScan(env) {
   const aiSignalChanged = ai?.side !== "WAIT" && ai?.side !== previousState.ai_side;
   const canOpenAiTrade = settings.aiEnabled && (ai?.side === "BUY" || ai?.side === "SELL") && !hasOpenAiTrade && aiSignalChanged;
   const candle = candles[candles.length - 1];
-  const slDistance = context.atr * 1.2;
+  const atrSlDistance = context.atr * 1.2;
+  // DEMO protective levels must sit beyond the executable side of the live spread.
+  // Keep virtual strategy levels unchanged; widen DEMO-only distance when spread is larger.
+  const slDistance = settings.executionMode === "VIRTUAL"
+    ? atrSlDistance
+    : Math.max(atrSlDistance, market.spread * 1.05);
 
   // The classic scanner always makes its own decision and records its own virtual trade.
   const normalEntry = normalSide === "BUY" ? market.ask : normalSide === "SELL" ? market.bid : null;
