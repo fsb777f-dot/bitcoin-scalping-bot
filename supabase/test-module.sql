@@ -48,3 +48,12 @@ grant usage, select on sequence public.test_trades_id_seq to service_role;
 
 insert into public.test_settings (id) values (1) on conflict (id) do nothing;
 insert into public.test_state (id) values (1) on conflict (id) do nothing;
+
+
+-- Migration: allow one combined three-strategy virtual trade.
+alter table public.test_trades drop constraint if exists test_trades_strategy_check;
+alter table public.test_trades add constraint test_trades_strategy_check
+  check (strategy in ('brooks','cameron','smb','consensus'));
+alter table public.test_trades add column if not exists confirmations jsonb not null default '[]'::jsonb;
+create index if not exists test_trades_consensus_status_idx
+  on public.test_trades(strategy, status, trade_time desc);
