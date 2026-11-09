@@ -13,7 +13,7 @@ let busy = false;
 function render(data) {
   if (data.settings?.enabled) enabled = { ...enabled, ...data.settings.enabled };
   const signals = data.state?.signals || {};
-  const trades = data.trades || [];
+  const trades = (data.trades || []).filter(t => t.strategy === "consensus");
   const side = signals.consensus || "WAIT";
   const confirmations = signals.confirmations || [];
   const rows = trades.filter(t => t.strategy === "consensus");
