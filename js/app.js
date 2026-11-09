@@ -120,9 +120,11 @@ async function saveSettings(){
  $("cloudStatus").textContent="Настройки сохранены в облаке · сканер обновит их в ближайшую минуту";
 }
 async function setExecutionMode(mode){
+ const pin=prompt("Введите PIN управления DEMO (он хранится только в Worker Cloudflare):");
+ if(!pin)throw new Error("Переключение DEMO отменено: PIN не введён.");
  const size=Number($("demoTradeSize").value);
  const response=await fetch(WORKER+"/api/execution-mode",{
-  method:"POST",headers:{"Content-Type":"application/json"},
+  method:"POST",headers:{"Content-Type":"application/json","X-Execution-Control":pin},
   body:JSON.stringify({mode,trade_size:Number.isFinite(size)&&size>0?size:null})
  });
  const result=await response.json().catch(()=>({}));
