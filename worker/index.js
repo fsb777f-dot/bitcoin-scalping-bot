@@ -333,9 +333,6 @@ async function getPreviousState(env) {
   const rows = await db(env, "bot_state?id=eq.1&select=ai_side");
   return rows?.[0] || {};
 }
-function aiSideCanBeOpened(ai) {
-  return ai?.side === "BUY" || ai?.side === "SELL";
-}
 function applyHigherTimeframeConfirmation(ai, context) {
   if (!ai || ai.side === "WAIT") return ai;
   const trend = context.e9 > context.e21 && context.last > context.e21 ? "BUY"
@@ -439,7 +436,7 @@ async function runScan(env) {
   const openAiTrades = settings.aiEnabled ? await getOpenAiTrades(env) : [];
   const hasOpenAiTrade = Array.isArray(openAiTrades) && openAiTrades.length > 0;
   const aiSignalChanged = ai?.side !== "WAIT" && ai?.side !== previousState.ai_side;
-  const canOpenAiTrade = settings.aiEnabled && aiSideCanBeOpened(ai) && !hasOpenAiTrade && aiSignalChanged;
+  const canOpenAiTrade = settings.aiEnabled && (ai?.side === "BUY" || ai?.side === "SELL") && !hasOpenAiTrade && aiSignalChanged;
   const candle = candles[candles.length - 1];
   const slDistance = context.atr * 1.2;
 
@@ -462,9 +459,9 @@ async function runScan(env) {
   const aiSide = ai?.side || "WAIT";
   const aiEntry = canOpenAiTrade && aiSide === "BUY" ? market.ask
     : canOpenAiTrade && aiSide === "SELL" ? market.bid : null;
-  const aiSl = aiSide === "BUY" ? aiEntry - slDistance : aiSide === "SELL" ? aiEntry + slDistance : null;
-  const aiTp = aiSide === "BUY" ? aiEntry + slDistance * settings.riskReward
-    : aiSide === "SELL" ? aiEntry - slDistance * settings.riskReward : null;
+  const aiSl = canOpenAiTrade ? (aiSide === "BUY" ? aiEntry - slDistance : aiEntry + slDistance) : null;
+  const aiTp = canOpenAiTrade ? (aiSide === "BUY" ? aiEntry + slDistance * settings.riskReward
+    : aiEntry - slDistance * settings.riskReward) : null;
   if (canOpenAiTrade) {
     await insertTradeOnce(env, {
       trade_key: "ai:" + settings.timeframe + ":" + candle.time + ":" + aiSide,
