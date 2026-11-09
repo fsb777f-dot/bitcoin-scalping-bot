@@ -1,6 +1,6 @@
 import { buildContext } from "../js/indicators.js";
 import { strategies, names } from "../strategies/index.js";
-import { capitalDemoStatus, capitalDemoMarketData, capitalDemoInstrumentRules, capitalDemoOpenPosition } from "./capital-demo.js";
+import { capitalDemoStatus, capitalDemoMarketData, capitalDemoInstrumentRules, capitalDemoOpenPosition, capitalDemoReconcile } from "./capital-demo.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -292,6 +292,11 @@ async function patchTrade(env, key, patch) {
     body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() })
   });
 }
+async function syncCapitalDemoTrades(env) {
+  const trades = await db(env, "trades?status=eq.OPEN&execution_mode=in.(MAIN_DEMO,AI_DEMO)&capital_deal_id=not.is.null&select=trade_key,capital_deal_id,execution_mode");
+  if (!trades?.length) return { checked: 0, stillOpen: 0, closed: 0, unresolved: 0 };
+  return capitalDemoReconcile(env, trades);
+}
 async function updateOpenTrades(env, bid, ask) {
   const open = await db(env, "trades?status=eq.OPEN&select=*");
   for (const t of open || []) {
@@ -426,6 +431,13 @@ async function runScan(env) {
     ? buys >= required && buys > sells ? "BUY"
     : sells >= required && sells > buys ? "SELL" : "WAIT"
     : "WAIT";
+  try {
+    const sync = await syncCapitalDemoTrades(env);
+    if (sync.closed || sync.unresolved) console.log("Capital.com DEMO journal sync", sync);
+  } catch (error) {
+    // A broker-history failure must not cause journal rows to be guessed closed.
+    console.error("Capital.com DEMO journal sync failed", error?.message || String(error));
+  }
   await updateOpenTrades(env, market.bid, market.ask);
   let performance = [];
   if (settings.aiEnabled) {
