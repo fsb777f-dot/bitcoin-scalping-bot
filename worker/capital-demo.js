@@ -103,7 +103,7 @@ export async function capitalDemoMarketData(env, timeframe = "1m") {
   const auth = { CST: cst, "X-SECURITY-TOKEN": security };
   const [marketResult, historyResult] = await Promise.all([
     request("/markets/BTCUSD", auth),
-    request("/prices/BTCUSD?resolution=" + (timeframe === "5m" ? "MINUTE_5" : "MINUTE") + "&max=300", auth)
+    request("/prices/BTCUSD?resolution=" + (timeframe === "15m" ? "MINUTE_15" : timeframe === "5m" ? "MINUTE_5" : "MINUTE") + "&max=300", auth)
   ]);
   const snapshot = marketResult.data?.snapshot || {};
   const bid = Number(snapshot.bid);
@@ -129,7 +129,8 @@ export async function capitalDemoMarketData(env, timeframe = "1m") {
   }).filter(c => c.time !== null && [c.open, c.high, c.low, c.close].every(Number.isFinite))
     .sort((a, b) => a.time - b.time);
 
-  if (candles.length && candles[candles.length - 1].time >= Math.floor(Date.now() / 60000) * 60) candles.pop();
+  const candleSeconds = timeframe === "15m" ? 900 : timeframe === "5m" ? 300 : 60;
+  if (candles.length && candles[candles.length - 1].time >= Math.floor(Date.now() / (candleSeconds * 1000)) * candleSeconds) candles.pop();
   if (candles.length < 60) throw new Error("Capital.com returned fewer than 60 completed BTCUSD candles");
 
   return {
