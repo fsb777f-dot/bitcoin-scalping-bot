@@ -60,7 +60,7 @@ function renderSignal(){
  $("aiTp").textContent=fmt(aiActive?r.ai_tp:null);
  $("aiNote").textContent=!settings?.ai_enabled?"AI выключен. Обычный сканер продолжает работать самостоятельно.":!aiActive?"AI включён. Ожидаем следующий серверный цикл сканирования.":(r.ai_reason||"AI анализирует рынок.");
  const perf=aiActive?(r.ai_performance||[]):[],learned=perf.filter(p=>p.trades>=5).length,excluded=(r.ai_excluded||[]).length;
- $("aiLearning").textContent=aiActive?"AI анализирует собственные виртуальные сделки: "+learned+" стратегий с выборкой от 5 сделок · исключено слабых: "+excluded+". Уверенность — доля голосов, не вероятность прибыли.":"Статистика AI появится после закрытия его виртуальных сделок.";
+ $("aiLearning").textContent=aiActive?"AI анализирует собственные сделки: "+learned+" стратегий с выборкой от 5 сделок · исключено слабых: "+excluded+". Уверенность — доля голосов, не вероятность прибыли.":"Статистика AI появится после закрытия его сделок.";
  renderStrategies();
 }
 async function loadAiJournal(){
