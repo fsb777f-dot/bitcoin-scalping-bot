@@ -352,7 +352,7 @@ async function getOpenAiTrades(env) {
   return db(env, "trades?status=eq.OPEN&trade_key=like.ai%25&select=trade_key,side&limit=1");
 }
 async function getPreviousState(env) {
-  const rows = await db(env, "bot_state?id=eq.1&select=ai_side");
+  const rows = await db(env, "bot_state?id=eq.1&select=ai_side,side");
   return rows?.[0] || {};
 }
 function applyHigherTimeframeConfirmation(ai, context) {
@@ -407,7 +407,7 @@ function aiDecision(results, enabled, performance) {
 async function runScan(env) {
   if (!env.SUPABASE_SECRET_KEY) throw new Error("Set SUPABASE_SECRET_KEY in Worker secrets");
   const settings = await getSettings(env);
-  const previousState = settings.aiEnabled ? await getPreviousState(env) : {};
+  const previousState = await getPreviousState(env);
   const market = await getMarketData(env, settings.timeframe);
   const higherTimeframe = settings.timeframe === "1m" ? "5m" : "15m";
   const { candles, price, source } = market;
@@ -480,7 +480,10 @@ async function runScan(env) {
   const normalTp = normalSide === "BUY" ? normalEntry + slDistance * settings.riskReward
     : normalSide === "SELL" ? normalEntry - slDistance * settings.riskReward : null;
   let executionError = null;
-  if (normalSide !== "WAIT") {
+  // Enter only when the main scanner changes into a new directional signal.
+  // This prevents a fresh trade on every minute while the same signal persists.
+  const normalSignalChanged = normalSide !== "WAIT" && normalSide !== previousState.side;
+  if (normalSignalChanged) {
     const normalTrade = {
       trade_key: "server:" + settings.timeframe + ":" + candle.time + ":" + normalSide,
       trade_time: Date.now(), side: normalSide, entry: normalEntry, sl: normalSl, tp: normalTp,
