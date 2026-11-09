@@ -114,7 +114,7 @@ async function loadSettings(){
  renderStrategies();
 }
 async function saveSettings(){
- const payload={id:1,timeframe:tf,enabled_strategies:settings.enabled_strategies,consensus_enabled:settings.consensus_enabled,required_matches:settings.required_matches,risk_reward:settings.risk_reward,ai_enabled:!!settings.ai_enabled,updated_at:new Date().toISOString()};
+ const payload={id:1,timeframe:tf,enabled_strategies:settings.enabled_strategies,consensus_enabled:settings.consensus_enabled,required_matches:settings.required_matches,risk_reward:settings.risk_reward,ai_enabled:!!settings.ai_enabled,execution_mode:settings.execution_mode||"VIRTUAL",trade_size:settings.trade_size??null,updated_at:new Date().toISOString()};
  const {error}=await supabase.from("bot_settings").upsert(payload,{onConflict:"id"});
  if(error)throw error;
  $("cloudStatus").textContent="Настройки сохранены в облаке · сканер обновит их в ближайшую минуту";
