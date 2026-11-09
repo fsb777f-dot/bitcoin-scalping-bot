@@ -27,6 +27,7 @@ function render(data) {
     (side === "BUY" ? "green" : side === "SELL" ? "red" : "yellow") + '">' + side + '</b></div>' +
     '<div class="test-confluence">Подтвердили сигнал: <b>' + (confirmations.length ? confirmations.map(id => STRATEGIES.find(s => s[0] === id)?.[1].split(" · ")[0] || id).join(" + ") : "нет") + '</b> · ' +
     confirmations.length + '/3</div>' +
+    '<div class="test-stats"><span>Вход <b>' + fmt(signals.consensus_entry) + '</b></span><span>Stop Loss <b>' + fmt(signals.consensus_sl) + '</b></span><span>Take Profit <b>' + fmt(signals.consensus_tp) + '</b></span></div>' +
     '<div class="test-confluence">' + STRATEGIES.map(([id, name]) => {
       const s = signals[id] || "WAIT";
       return name.split(" · ")[0] + ': <b class="' + (s === "BUY" ? "green" : s === "SELL" ? "red" : "yellow") + '">' + s + '</b>';
