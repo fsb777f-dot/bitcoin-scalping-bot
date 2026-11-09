@@ -62,11 +62,17 @@ function renderSignal(){
 async function loadAiJournal(){
  if(aiJournalLoading)return;aiJournalLoading=true;
  try{
-  const {data,error}=await supabase.from("trades")
-   .select("trade_key,trade_time,side,entry,sl,tp,exit,pnl,status,result")
-   .like("trade_key","ai:%").order("trade_time",{ascending:false});
-  if(error)throw error;
-  const rows=data||[],closed=rows.filter(t=>t.status==="CLOSED");
+  const rows=[];
+  for(let offset=0;;offset+=1000){
+   const {data,error}=await supabase.from("trades")
+    .select("trade_key,trade_time,side,entry,sl,tp,exit,pnl,status,result")
+    .like("trade_key","ai:%").order("trade_time",{ascending:false})
+    .range(offset,offset+999);
+   if(error)throw error;
+   rows.push(...(data||[]));
+   if(!data||data.length<1000)break;
+  }
+  const closed=rows.filter(t=>t.status==="CLOSED");
   const wins=closed.filter(t=>Number(t.pnl)>0||t.result==="TP").length;
   const losses=closed.filter(t=>Number(t.pnl)<0||t.result==="SL").length;
   const decided=wins+losses;
