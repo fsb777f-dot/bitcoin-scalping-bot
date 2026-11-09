@@ -124,3 +124,6 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 .test-trade span{overflow-wrap:anywhere}
 @media(max-width:700px){.test-cards{grid-template-columns:1fr}.test-trade{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.test-trade b{grid-column:1/-1}}
 @media(max-width:600px){.nav{gap:2px;justify-content:space-around;padding-left:4px;padding-right:4px}.nav button{padding:8px 9px;font-size:11px}}
+
+/* AI journal controls and expanded history */
+.ai-journal-heading{flex-wrap:wrap}.ai-journal-heading button{flex-shrink:0;cursor:pointer}.ai-journal-heading button:disabled{opacity:.6;cursor:wait}
