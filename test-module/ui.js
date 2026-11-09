@@ -48,7 +48,7 @@ let busy = false;
 function render(data) {
   if (data.settings?.enabled) enabled = { ...enabled, ...data.settings.enabled };
   const signals = data.state?.signals || {};
-  const trades = data.trades || [];\n  renderMarketAnalysis(data.state?.analysis);
+  const trades = data.trades || [];\n  const analysis = data.state?.analysis;\n  renderMarketAnalysis(analysis);\n  renderMarketAnalysis(data.state?.analysis);
   $("testCards").innerHTML = STRATEGIES.map(([id, name, description]) => {
     const side = signals[id] || "WAIT";
     const rows = trades.filter(t => t.strategy === id);
@@ -60,6 +60,7 @@ function render(data) {
     return '<article class="test-card"><div class="test-card-head"><div><b>' + name + '</b><small>' + description + '</small></div>' +
       '<label class="switch"><input type="checkbox" data-test-toggle="' + id + '"' + (enabled[id] ? ' checked' : '') + '><span class="switch-slider"></span></label></div>' +
       '<div class="test-signal ' + (side === "BUY" ? "green" : side === "SELL" ? "red" : "yellow") + '">' + (enabled[id] ? side : "ВЫКЛ") + '</div>' +
+      '<div class="test-confluence">Подтверждения индикаторов: <b>' + (context ? context.confirmations + "/" + context.checks : "—") + '</b> · тренд 5m/15m, MACD, RSI</div>' +
       '<div class="test-stats"><span>Сделок <b>' + rows.length + '</b></span><span>Winrate <b>' + (decided ? (wins / decided * 100).toFixed(1) + "%" : "—") + '</b></span>' +
       '<span>Плюс <b class="green">' + wins + '</b></span><span>Минус <b class="red">' + losses + '</b></span><span>PnL <b class="' + (pnl > 0 ? "green" : pnl < 0 ? "red" : "") + '">' + fmt(pnl) + '</b></span></div></article>';
   }).join("");
