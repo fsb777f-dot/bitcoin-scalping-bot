@@ -194,8 +194,8 @@ export async function capitalDemoReconcile(env, trades) {
     );
     const activities = Array.isArray(activityResult.data?.activities) ? activityResult.data.activities : [];
     const closeEvent = activities
-      .filter(item => item.dealId === dealId && item.type === "POSITION" && item.status === "EXECUTED"
-        && ["TP", "SL", "USER", "SYSTEM", "CLOSE_OUT"].includes(item.source))
+      .filter(item => item.dealId === dealId && item.type === "POSITION" && ["ACCEPTED", "EXECUTED"].includes(item.status)
+        && (["TP", "SL"].includes(item.source) || (item.status === "EXECUTED" && ["USER", "SYSTEM", "CLOSE_OUT"].includes(item.source))))
       .sort((a, b) => String(b.dateUTC || b.date || "").localeCompare(String(a.dateUTC || a.date || "")))[0];
 
     if (!closeEvent) {
@@ -208,7 +208,6 @@ export async function capitalDemoReconcile(env, trades) {
       status: "CLOSED",
       result: closeReason,
       capital_status: "CLOSED",
-      closed_at: closeEvent.dateUTC || closeEvent.date || new Date().toISOString(),
       exit: null,
       pnl: null
     });
@@ -219,7 +218,7 @@ export async function capitalDemoReconcile(env, trades) {
 
 // Keep database writes local to the worker; Capital reconciliation itself is read-only.
 async function dbPatchTrade(env, tradeKey, patch) {
-  const base = (env.SUPABASE_URL || "https://pycdhpsmxhmvuyqerotb.supabase.co").replace(/\\/+$/, "");
+  const base = (env.SUPABASE_URL || "https://pycdhpsmxhmvuyqerotb.supabase.co").replace(/\/+$/, "");
   const response = await fetch(base + "/rest/v1/trades?trade_key=eq." + encodeURIComponent(tradeKey), {
     method: "PATCH",
     headers: {
