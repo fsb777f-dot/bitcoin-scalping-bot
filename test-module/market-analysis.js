@@ -125,15 +125,20 @@ function analyze(candles) {
 
 export async function loadMarketAnalysis() {
   const responses = await Promise.all(TIMEFRAMES.map(async tf => {
-    const rows = await fetchBinance("/api/v3/klines?symbol=BTCUSDT&interval=" + tf.id + "&limit=300");
-    const candles = normalizeCandles(rows);
-    if (candles.length < 60) throw new Error("Недостаточно свечей для " + tf.id + ": " + candles.length);
-    return [tf.id, { candles, analysis: analyze(candles) }];
+    try {
+      const rows = await fetchBinance("/api/v3/klines?symbol=BTCUSDT&interval=" + tf.id + "&limit=300");
+      const candles = normalizeCandles(rows);
+      if (candles.length < 60) throw new Error("Недостаточно свечей: " + candles.length);
+      return [tf.id, { candles, analysis: analyze(candles) }];
+    } catch (error) {
+      return [tf.id, { error: error?.message || String(error) }];
+    }
   }));
   const ticker = await fetchBinance("/api/v3/ticker/price?symbol=BTCUSDT");
   const price = Number(ticker?.price);
   if (!Number.isFinite(price) || price <= 0) throw new Error("Binance вернул неверную цену BTC/USDT");
   const frames = Object.fromEntries(responses);
+  if (!frames["1m"]?.candles) throw new Error("Нет минутных свечей: " + (frames["1m"]?.error || "unknown"));
   return {
     price,
     candles: frames["1m"].candles,
@@ -141,7 +146,8 @@ export async function loadMarketAnalysis() {
       source: "Binance",
       symbol: "BTC/USDT",
       updated_at: new Date().toISOString(),
-      timeframes: Object.fromEntries(Object.entries(frames).map(([id, value]) => [id, value.analysis]))
+      timeframes: Object.fromEntries(Object.entries(frames).filter(([, value]) => value.analysis).map(([id, value]) => [id, value.analysis])),
+      errors: Object.fromEntries(Object.entries(frames).filter(([, value]) => value.error).map(([id, value]) => [id, value.error]))
     }
   };
 }
