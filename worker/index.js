@@ -327,7 +327,7 @@ async function updateOpenTrades(env, bid, ask) {
   }
 }
 async function getOpenAiTrades(env) {
-  return db(env, "trades?status=eq.OPEN&trade_key=like.ai%&select=trade_key,side&limit=1");
+  return db(env, "trades?status=eq.OPEN&trade_key=like.ai%25&select=trade_key,side&limit=1");
 }
 async function getPreviousState(env) {
   const rows = await db(env, "bot_state?id=eq.1&select=ai_side");
@@ -344,7 +344,7 @@ function applyHigherTimeframeConfirmation(ai, context) {
   };
 }
 async function getStrategyPerformance(env) {
-  const rows = await db(env, "trades?status=eq.CLOSED&trade_key=like.ai%&select=confirmations,pnl,result,trade_time,trade_key&order=trade_time.desc&limit=300");
+  const rows = await db(env, "trades?status=eq.CLOSED&trade_key=like.ai%25&select=confirmations,pnl,result,trade_time,trade_key&order=trade_time.desc&limit=300");
   return names.map(name => {
     const relevant = (rows || []).filter(t => Array.isArray(t.confirmations) && t.confirmations.includes(name));
     const wins = relevant.filter(t => Number(t.pnl) > 0 || t.result === "TP").length;
