@@ -124,3 +124,18 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 .test-trade span{overflow-wrap:anywhere}
 @media(max-width:700px){.test-cards{grid-template-columns:1fr}.test-trade{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.test-trade b{grid-column:1/-1}}
 @media(max-width:600px){.nav{gap:2px;justify-content:space-around;padding-left:4px;padding-right:4px}.nav button{padding:8px 9px;font-size:11px}}
+
+/* Isolated multi-timeframe analysis panel */
+.test-market-analysis{display:grid;gap:9px}
+.test-market-meta{font-size:10px;color:var(--muted)}
+.test-market-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.test-market-card{min-width:0;background:#0c1320;border:1px solid var(--line);border-radius:11px;padding:10px}
+.test-market-head{display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:11px}
+.test-market-head span{font-size:9px;font-weight:800}
+.test-market-price{font-size:17px;font-weight:800;margin:9px 0;font-variant-numeric:tabular-nums}
+.test-indicators{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.test-indicators span,.test-fib span{display:flex;justify-content:space-between;gap:5px;color:var(--muted);font-size:9px}
+.test-indicators b{color:var(--text);font-size:9px;font-variant-numeric:tabular-nums}
+.test-fib{display:grid;gap:5px;border-top:1px solid var(--line);margin-top:9px;padding-top:8px}
+.test-fib>b{font-size:10px;margin-bottom:1px}
+@media(max-width:390px){.test-market-grid{grid-template-columns:1fr}.test-market-card{padding:9px}}
