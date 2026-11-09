@@ -1,6 +1,6 @@
 import { buildContext } from "../js/indicators.js";
 import { strategies, names } from "../strategies/index.js";
-import { capitalDemoStatus } from "./capital-demo.js";
+import { capitalDemoStatus, capitalDemoMarketData } from "./capital-demo.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -473,6 +473,10 @@ export default {
     if (url.pathname === "/api/capital-demo/status" && request.method === "GET") {
       try { return reply(await capitalDemoStatus(env)); }
       catch (e) { return reply({ connected: false, mode: "DEMO", error: e?.message || "Capital.com Demo connection failed" }, 502); }
+    }
+    if (url.pathname === "/api/capital-demo/market" && request.method === "GET") {
+      try { return reply(await capitalDemoMarketData(env)); }
+      catch (e) { return reply({ connected: false, mode: "DEMO", error: e?.message || "Capital.com Demo market data failed" }, 502); }
     }
     if (url.pathname === "/api/state" && request.method === "GET") {
       try {
