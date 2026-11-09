@@ -5,7 +5,7 @@ import { capitalDemoStatus, capitalDemoMarketData, capitalDemoInstrumentRules, c
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, X-Execution-Control",
   "Cache-Control": "no-store"
 };
 const reply = (data, status = 200) => new Response(JSON.stringify(data), {
@@ -566,6 +566,8 @@ export default {
     }
     if (url.pathname === "/api/execution-mode" && request.method === "POST") {
       try {
+        if (!env.EXECUTION_CONTROL_PIN) return reply({ error: "DEMO execution is locked: set EXECUTION_CONTROL_PIN in Worker secrets first." }, 503);
+        if (request.headers.get("X-Execution-Control") !== env.EXECUTION_CONTROL_PIN) return reply({ error: "Неверный PIN управления DEMO." }, 401);
         const body = await request.json();
         const mode = body?.mode;
         if (!["VIRTUAL", "MAIN_DEMO", "AI_DEMO"].includes(mode)) {
