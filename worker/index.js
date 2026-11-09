@@ -523,8 +523,7 @@ async function runScan(env) {
       ai_weight: ai?.performance.find(p => p.name === name)?.weight ?? null,
       ai_excluded: ai?.performance.find(p => p.name === name)?.excluded ?? false
     })),
-    execution_mode: settings.executionMode, trade_size: settings.tradeSize,
-    execution_error: executionError, market_source: source, bid: market.bid, ask: market.ask, spread: market.spread, scan_ok: true, last_error: null
+    market_source: source, bid: market.bid, ask: market.ask, spread: market.spread, scan_ok: true, last_error: executionError
   });
   return { ok: true, price, normalSide, aiSide, activeCount, required, source, aiEnabled: settings.aiEnabled };
 }
