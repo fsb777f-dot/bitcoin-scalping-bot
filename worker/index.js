@@ -326,6 +326,23 @@ async function updateOpenTrades(env, bid, ask) {
     });
   }
 }
+async function getOpenAiTrades(env) {
+  return db(env, "trades?status=eq.OPEN&trade_key=like.ai%&select=trade_key,side&limit=1");
+}
+async function getPreviousState(env) {
+  const rows = await db(env, "bot_state?id=eq.1&select=ai_side");
+  return rows?.[0] || {};
+}
+function applyHigherTimeframeConfirmation(ai, context) {
+  if (!ai || ai.side === "WAIT") return ai;
+  const trend = context.e9 > context.e21 && context.last > context.e21 ? "BUY"
+    : context.e9 < context.e21 && context.last < context.e21 ? "SELL" : "WAIT";
+  if (trend === ai.side) return { ...ai, higher_timeframe: trend };
+  return {
+    ...ai, side: "WAIT", count: 0, selected: [], higher_timeframe: trend,
+    reason: "AI ждёт: сигнал не подтверждён старшим таймфреймом."
+  };
+}
 async function getStrategyPerformance(env) {
   const rows = await db(env, "trades?status=eq.CLOSED&trade_key=like.ai%&select=confirmations,pnl,result,trade_time,trade_key&order=trade_time.desc&limit=300");
   return names.map(name => {
@@ -368,8 +385,19 @@ function aiDecision(results, enabled, performance) {
 async function runScan(env) {
   if (!env.SUPABASE_SECRET_KEY) throw new Error("Set SUPABASE_SECRET_KEY in Worker secrets");
   const settings = await getSettings(env);
+  const previousState = settings.aiEnabled ? await getPreviousState(env) : {};
   const market = await getMarketData(env, settings.timeframe);
+  const higherTimeframe = settings.timeframe === "1m" ? "5m" : "15m";
   const { candles, price, source } = market;
+  let higherContext = null;
+  if (settings.aiEnabled) {
+    try {
+      const higherMarket = await getMarketData(env, higherTimeframe);
+      if (higherMarket.candles.length >= 60) higherContext = buildContext(higherMarket.candles);
+    } catch (error) {
+      console.error("AI higher-timeframe confirmation unavailable", error?.message || String(error));
+    }
+  }
   if (candles.length < 60) throw new Error("Not enough completed candles");
   const context = buildContext(candles);
   const results = strategies.map(fn => { try { return fn(context); } catch { return "WAIT"; } });
@@ -398,7 +426,16 @@ async function runScan(env) {
       }));
     }
   }
-  const ai = settings.aiEnabled ? aiDecision(results, names.map(() => true), performance) : null;
+  let ai = settings.aiEnabled ? aiDecision(results, names.map(() => true), performance) : null;
+  // Fail closed: AI does not open a position unless the higher timeframe confirms it.
+  if (settings.aiEnabled) {
+    ai = higherContext
+      ? applyHigherTimeframeConfirmation(ai, higherContext)
+      : { ...ai, side: "WAIT", count: 0, selected: [], reason: "AI ждёт: нет данных старшего таймфрейма." };
+  }
+  const openAiTrades = settings.aiEnabled ? await getOpenAiTrades(env) : [];
+  const hasOpenAiTrade = Array.isArray(openAiTrades) && openAiTrades.length > 0;
+  const aiSignalChanged = ai?.side !== "WAIT" && ai?.side !== previousState.ai_side;
   const candle = candles[candles.length - 1];
   const slDistance = context.atr * 1.2;
 
@@ -424,7 +461,7 @@ async function runScan(env) {
   const aiSl = aiSide === "BUY" ? aiEntry - slDistance : aiSide === "SELL" ? aiEntry + slDistance : null;
   const aiTp = aiSide === "BUY" ? aiEntry + slDistance * settings.riskReward
     : aiSide === "SELL" ? aiEntry - slDistance * settings.riskReward : null;
-  if (settings.aiEnabled && aiSide !== "WAIT") {
+  if (settings.aiEnabled && aiSide !== "WAIT" && !hasOpenAiTrade && aiSignalChanged) {
     await insertTradeOnce(env, {
       trade_key: "ai:" + settings.timeframe + ":" + candle.time + ":" + aiSide,
       trade_time: Date.now(), side: aiSide, entry: aiEntry, sl: aiSl, tp: aiTp,
@@ -442,6 +479,7 @@ async function runScan(env) {
     ai_enabled: settings.aiEnabled,
     ai_side: aiSide, ai_count: ai?.count ?? 0, ai_entry: aiEntry, ai_sl: aiSl, ai_tp: aiTp,
     ai_confidence: ai?.confidence ?? null, ai_reason: ai?.reason ?? (settings.aiEnabled ? "AI ожидает подтверждения." : "AI выключен."),
+    ai_higher_timeframe: higherTimeframe, ai_open_trade: hasOpenAiTrade,
     ai_selected: ai?.selected ?? [], ai_excluded: ai?.excluded ?? [],
     ai_performance: performance, normal_side: normalSide,
     strategy_results: names.map((name, i) => ({
