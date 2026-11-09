@@ -81,16 +81,17 @@ async function runTestScan(env) {
     });
   }
 
-  if (consensusSide === "BUY" || consensusSide === "SELL") {
+  const consensusLevels = consensusSide === "BUY" || consensusSide === "SELL"
+    ? testRiskLevels(consensusSide, price, candles, 2) : null;
+  if (consensusSide !== "WAIT" && consensusLevels) {
     const existing = await db(env, "test_trades?strategy=eq.consensus&status=eq.OPEN&select=id&limit=1");
     if (!existing?.length) {
-      const levels = testRiskLevels(consensusSide, price, candles, 2);
-      if (levels) await db(env, "test_trades?on_conflict=trade_key", {
+      await db(env, "test_trades?on_conflict=trade_key", {
         method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
         body: JSON.stringify({
           trade_key: "test:consensus:1m:" + candle.time,
           strategy: "consensus", confirmations, timeframe: "1m", candle_time: candle.time, trade_time: Date.now(),
-          side: consensusSide, entry: price, sl: levels.sl, tp: levels.tp, exit: null, pnl: null,
+          side: consensusSide, entry: price, sl: consensusLevels.sl, tp: consensusLevels.tp, exit: null, pnl: null,
           status: "OPEN", result: null, updated_at: new Date().toISOString()
         })
       });
@@ -99,7 +100,11 @@ async function runTestScan(env) {
 
   await db(env, "test_state?on_conflict=id", {
     method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ id: 1, timeframe: "1m", price, signals: { ...signals, consensus: consensusSide, confirmations }, analysis, updated_at: new Date().toISOString() })
+    body: JSON.stringify({ id: 1, timeframe: "1m", price, signals: { ...signals, consensus: consensusSide, confirmations,
+        consensus_entry: consensusLevels ? price : null,
+        consensus_sl: consensusLevels?.sl ?? null,
+        consensus_tp: consensusLevels?.tp ?? null
+      }, analysis, updated_at: new Date().toISOString() })
   });
   return { ok: true, price, signals, analysis };
 }
