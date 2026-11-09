@@ -7,13 +7,48 @@ const STRATEGIES = [
 const $ = id => document.getElementById(id);
 const fmt = value => value == null || !Number.isFinite(Number(value)) ? "—" :
   Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtSmall = value => value == null || !Number.isFinite(Number(value)) ? "—" : Number(value).toFixed(2);
+const FRAME_NAMES = { "1m": "1 мин", "5m": "5 мин", "15m": "15 мин", "1h": "1 час", "4h": "4 часа" };
+
+function renderMarketAnalysis(analysis) {
+  const host = $("testMarketAnalysis");
+  if (!host) return;
+  const frames = analysis?.timeframes;
+  if (!frames) {
+    host.innerHTML = '<p class="notice">Ожидание серверного расчёта индикаторов. Worker обновляет данные раз в минуту.</p>';
+    return;
+  }
+  host.innerHTML = '<div class="test-market-meta">Источник: ' + (analysis.source || "—") + ' · ' +
+    (analysis.updated_at ? new Date(analysis.updated_at).toLocaleTimeString("ru-RU") : "—") + '</div>' +
+    '<div class="test-market-grid">' + Object.entries(FRAME_NAMES).map(([id, label]) => {
+      const x = frames[id];
+      if (!x) return '<article class="test-market-card"><b>' + label + '</b><p class="notice">Нет данных</p></article>';
+      const fib = x.fibonacci;
+      const macdTone = x.macd?.histogram > 0 ? "green" : x.macd?.histogram < 0 ? "red" : "";
+      return '<article class="test-market-card"><div class="test-market-head"><b>' + label + '</b><span class="' +
+        (x.trend === "UP" ? "green" : x.trend === "DOWN" ? "red" : "yellow") + '">' +
+        (x.trend === "UP" ? "РОСТ" : x.trend === "DOWN" ? "СНИЖЕНИЕ" : "ОЖИДАНИЕ") + '</span></div>' +
+        '<div class="test-market-price">' + fmt(x.price) + '</div>' +
+        '<div class="test-indicators"><span>EMA 9 <b>' + fmt(x.ema?.["9"]) + '</b></span>' +
+        '<span>EMA 21 <b>' + fmt(x.ema?.["21"]) + '</b></span>' +
+        '<span>EMA 50 <b>' + fmt(x.ema?.["50"]) + '</b></span>' +
+        '<span>EMA 200 <b>' + fmt(x.ema?.["200"]) + '</b></span>' +
+        '<span>RSI 14 <b>' + fmtSmall(x.rsi14) + '</b></span>' +
+        '<span>MACD hist <b class="' + macdTone + '">' + fmtSmall(x.macd?.histogram) + '</b></span>' +
+        '<span>ATR 14 <b>' + fmt(x.atr14) + '</b></span></div>' +
+        '<div class="test-fib"><b>Fibonacci</b><span>Тренд: ' + (fib?.trend === "UP" ? "рост" : fib?.trend === "DOWN" ? "снижение" : "—") +
+        '</span><span>23.6% ' + fmt(fib?.levels?.["0.236"]) + '</span><span>38.2% ' + fmt(fib?.levels?.["0.382"]) +
+        '</span><span>50% ' + fmt(fib?.levels?.["0.5"]) + '</span><span>61.8% ' + fmt(fib?.levels?.["0.618"]) +
+        '</span><span>78.6% ' + fmt(fib?.levels?.["0.786"]) + '</span></div></article>';
+    }).join("") + '</div>';
+}
 let enabled = { brooks: true, cameron: true, smb: true };
 let busy = false;
 
 function render(data) {
   if (data.settings?.enabled) enabled = { ...enabled, ...data.settings.enabled };
   const signals = data.state?.signals || {};
-  const trades = data.trades || [];
+  const trades = data.trades || [];\n  renderMarketAnalysis(data.state?.analysis);
   $("testCards").innerHTML = STRATEGIES.map(([id, name, description]) => {
     const side = signals[id] || "WAIT";
     const rows = trades.filter(t => t.strategy === id);
