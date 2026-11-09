@@ -168,6 +168,71 @@ async function capitalDemoAuth(env) {
   return { CST: cst, "X-SECURITY-TOKEN": security };
 }
 
+export async function capitalDemoReconcile(env, trades) {
+  const auth = await capitalDemoAuth(env);
+  const result = await request("/positions", auth);
+  const positions = Array.isArray(result.data?.positions) ? result.data.positions : [];
+  const openById = new Map(positions.map(item => [item.position?.dealId, item.position]).filter(([id]) => id));
+  const summary = { checked: 0, stillOpen: 0, closed: 0, unresolved: 0 };
+
+  for (const trade of trades || []) {
+    const dealId = trade.capital_deal_id;
+    if (!dealId) continue;
+    summary.checked++;
+    const live = openById.get(dealId);
+    if (live) {
+      await dbPatchTrade(env, trade.trade_key, { capital_status: "OPEN" });
+      summary.stillOpen++;
+      continue;
+    }
+
+    // Absence from /positions is not proof of closure. Require a matching,
+    // explicitly executed position activity before changing the journal.
+    const activityResult = await request(
+      "/history/activity?detailed=true&lastPeriod=86400&dealId=" + encodeURIComponent(dealId),
+      auth
+    );
+    const activities = Array.isArray(activityResult.data?.activities) ? activityResult.data.activities : [];
+    const closeEvent = activities
+      .filter(item => item.dealId === dealId && item.type === "POSITION" && item.status === "EXECUTED"
+        && ["TP", "SL", "USER", "SYSTEM", "CLOSE_OUT"].includes(item.source))
+      .sort((a, b) => String(b.dateUTC || b.date || "").localeCompare(String(a.dateUTC || a.date || "")))[0];
+
+    if (!closeEvent) {
+      summary.unresolved++;
+      continue;
+    }
+    const closeReason = closeEvent.source === "TP" ? "TP"
+      : closeEvent.source === "SL" ? "SL" : "BROKER_CLOSED";
+    await dbPatchTrade(env, trade.trade_key, {
+      status: "CLOSED",
+      result: closeReason,
+      capital_status: "CLOSED",
+      closed_at: closeEvent.dateUTC || closeEvent.date || new Date().toISOString(),
+      exit: null,
+      pnl: null
+    });
+    summary.closed++;
+  }
+  return summary;
+}
+
+// Keep database writes local to the worker; Capital reconciliation itself is read-only.
+async function dbPatchTrade(env, tradeKey, patch) {
+  const base = (env.SUPABASE_URL || "https://pycdhpsmxhmvuyqerotb.supabase.co").replace(/\\/+$/, "");
+  const response = await fetch(base + "/rest/v1/trades?trade_key=eq." + encodeURIComponent(tradeKey), {
+    method: "PATCH",
+    headers: {
+      apikey: env.SUPABASE_SECRET_KEY,
+      Authorization: "Bearer " + env.SUPABASE_SECRET_KEY,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal"
+    },
+    body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() })
+  });
+  if (!response.ok) throw new Error("Supabase trade sync " + response.status + ": " + (await response.text()).slice(0, 300));
+}
+
 export async function capitalDemoInstrumentRules(env) {
   const auth = await capitalDemoAuth(env);
   const result = await request("/markets/BTCUSD", auth);
