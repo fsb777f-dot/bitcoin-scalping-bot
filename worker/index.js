@@ -1,10 +1,10 @@
 import { buildContext } from "../js/indicators.js";
 import { strategies, names } from "../strategies/index.js";
-import { capitalDemoStatus, capitalDemoMarketData } from "./capital-demo.js";
+import { capitalDemoStatus, capitalDemoMarketData, capitalDemoInstrumentRules, capitalDemoOpenPosition } from "./capital-demo.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
   "Cache-Control": "no-store"
 };
@@ -42,7 +42,9 @@ async function getSettings(env) {
     enabled,
     consensusEnabled: s.consensus_enabled !== false,
     requiredMatches: clamp(s.required_matches ?? 3, 1, names.length),
-    riskReward: [1, 1.5, 2, 2.5, 3, 4].includes(Number(s.risk_reward)) ? Number(s.risk_reward) : 2
+    riskReward: [1, 1.5, 2, 2.5, 3, 4].includes(Number(s.risk_reward)) ? Number(s.risk_reward) : 2,
+    executionMode: ["MAIN_DEMO", "AI_DEMO"].includes(s.execution_mode) ? s.execution_mode : "VIRTUAL",
+    tradeSize: Number(s.trade_size) > 0 ? Number(s.trade_size) : null
   };
 }
 async function bybitRequest(path) {
@@ -293,6 +295,7 @@ async function patchTrade(env, key, patch) {
 async function updateOpenTrades(env, bid, ask) {
   const open = await db(env, "trades?status=eq.OPEN&select=*");
   for (const t of open || []) {
+    if (t.execution_mode && t.execution_mode !== "VIRTUAL") continue;
     // A BUY closes at Bid; a SELL closes at Ask. Entry prices are stored at the
     // opposite side of the quote, so the spread is included exactly once.
     const price = t.side === "BUY" ? bid : ask;
@@ -325,6 +328,20 @@ async function updateOpenTrades(env, bid, ask) {
       sl, trailing_active: trailingActive, exit, pnl, status, result
     });
   }
+}
+async function openDemoTradeOnce(env, trade, executionMode, size) {
+  const existing = await db(env, "trades?trade_key=eq." + encodeURIComponent(trade.trade_key) + "&select=trade_key&limit=1");
+  if (Array.isArray(existing) && existing.length) return { duplicate: true };
+  const order = await capitalDemoOpenPosition(env, {
+    direction: trade.side, size, stopLevel: trade.sl, profitLevel: trade.tp
+  });
+  await insertTradeOnce(env, {
+    ...trade, execution_mode: executionMode,
+    capital_deal_id: order.dealId,
+    capital_deal_reference: order.dealReference,
+    capital_status: order.status
+  });
+  return { duplicate: false, dealId: order.dealId };
 }
 async function getOpenAiTrades(env) {
   return db(env, "trades?status=eq.OPEN&trade_key=like.ai%25&select=trade_key,side&limit=1");
@@ -445,14 +462,24 @@ async function runScan(env) {
   const normalSl = normalSide === "BUY" ? normalEntry - slDistance : normalSide === "SELL" ? normalEntry + slDistance : null;
   const normalTp = normalSide === "BUY" ? normalEntry + slDistance * settings.riskReward
     : normalSide === "SELL" ? normalEntry - slDistance * settings.riskReward : null;
+  let executionError = null;
   if (normalSide !== "WAIT") {
-    await insertTradeOnce(env, {
+    const normalTrade = {
       trade_key: "server:" + settings.timeframe + ":" + candle.time + ":" + normalSide,
       trade_time: Date.now(), side: normalSide, entry: normalEntry, sl: normalSl, tp: normalTp,
       initial_tp: normalTp, trailing_distance: Math.abs(normalEntry - normalSl), trailing_active: false,
       confirmations: names.filter((_, i) => settings.enabled[i] && results[i] === normalSide),
       exit: null, pnl: null, status: "OPEN", result: null, updated_at: new Date().toISOString()
-    });
+    };
+    if (settings.executionMode === "MAIN_DEMO") {
+      try {
+        await openDemoTradeOnce(env, normalTrade, "MAIN_DEMO", settings.tradeSize);
+      } catch (error) {
+        executionError = "Основной DEMO: " + (error?.message || String(error));
+      }
+    } else {
+      await insertTradeOnce(env, { ...normalTrade, execution_mode: "VIRTUAL" });
+    }
   }
 
   // AI is an independent paper trader. Its switch never changes the classic scanner.
@@ -463,13 +490,22 @@ async function runScan(env) {
   const aiTp = canOpenAiTrade ? (aiSide === "BUY" ? aiEntry + slDistance * settings.riskReward
     : aiEntry - slDistance * settings.riskReward) : null;
   if (canOpenAiTrade) {
-    await insertTradeOnce(env, {
+    const aiTrade = {
       trade_key: "ai:" + settings.timeframe + ":" + candle.time + ":" + aiSide,
       trade_time: Date.now(), side: aiSide, entry: aiEntry, sl: aiSl, tp: aiTp,
       initial_tp: aiTp, trailing_distance: Math.abs(aiEntry - aiSl), trailing_active: false,
       confirmations: ai.selected, exit: null, pnl: null, status: "OPEN", result: null,
       updated_at: new Date().toISOString()
-    });
+    };
+    if (settings.executionMode === "AI_DEMO") {
+      try {
+        await openDemoTradeOnce(env, aiTrade, "AI_DEMO", settings.tradeSize);
+      } catch (error) {
+        executionError = "AI DEMO: " + (error?.message || String(error));
+      }
+    } else {
+      await insertTradeOnce(env, { ...aiTrade, execution_mode: "VIRTUAL" });
+    }
   }
   await saveState(env, {
     timeframe: settings.timeframe, price, side: normalSide,
@@ -487,7 +523,8 @@ async function runScan(env) {
       ai_weight: ai?.performance.find(p => p.name === name)?.weight ?? null,
       ai_excluded: ai?.performance.find(p => p.name === name)?.excluded ?? false
     })),
-    market_source: source, bid: market.bid, ask: market.ask, spread: market.spread, scan_ok: true, last_error: null
+    execution_mode: settings.executionMode, trade_size: settings.tradeSize,
+    execution_error: executionError, market_source: source, bid: market.bid, ask: market.ask, spread: market.spread, scan_ok: true, last_error: null
   });
   return { ok: true, price, normalSide, aiSide, activeCount, required, source, aiEnabled: settings.aiEnabled };
 }
@@ -520,9 +557,44 @@ export default {
       try { return reply(await capitalDemoStatus(env)); }
       catch (e) { return reply({ connected: false, mode: "DEMO", error: e?.message || "Capital.com Demo connection failed" }, 502); }
     }
+    if (url.pathname === "/api/capital-demo/rules" && request.method === "GET") {
+      try { return reply(await capitalDemoInstrumentRules(env)); }
+      catch (e) { return reply({ error: e?.message || "Could not read DEMO dealing rules" }, 502); }
+    }
     if (url.pathname === "/api/capital-demo/market" && request.method === "GET") {
       try { return reply(await capitalDemoMarketData(env)); }
       catch (e) { return reply({ connected: false, mode: "DEMO", error: e?.message || "Capital.com Demo market data failed" }, 502); }
+    }
+    if (url.pathname === "/api/execution-mode" && request.method === "POST") {
+      try {
+        const body = await request.json();
+        const mode = body?.mode;
+        if (!["VIRTUAL", "MAIN_DEMO", "AI_DEMO"].includes(mode)) {
+          return reply({ error: "Invalid execution mode" }, 400);
+        }
+        const size = Number(body?.trade_size);
+        if (mode !== "VIRTUAL") {
+          if (!Number.isFinite(size) || size <= 0) return reply({ error: "Укажи положительный размер сделки BTC." }, 400);
+          const rules = await capitalDemoInstrumentRules(env);
+          const steps = (size - rules.minDealSize) / rules.sizeIncrement;
+          if (rules.marketStatus !== "TRADEABLE") return reply({ error: "BTCUSD сейчас недоступен для торговли." }, 400);
+          if (size < rules.minDealSize || size > rules.maxDealSize || Math.abs(steps - Math.round(steps)) > 1e-8) {
+            return reply({ error: "Размер BTC должен быть от " + rules.minDealSize + " до " + rules.maxDealSize + " с шагом " + rules.sizeIncrement + "." }, 400);
+          }
+        }
+        await db(env, "bot_settings?id=eq.1", {
+          method: "PATCH",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({
+            execution_mode: mode,
+            trade_size: Number.isFinite(size) && size > 0 ? size : null,
+            updated_at: new Date().toISOString()
+          })
+        });
+        return reply({ ok: true, execution_mode: mode, trade_size: Number.isFinite(size) && size > 0 ? size : null });
+      } catch (e) {
+        return reply({ error: e?.message || "Не удалось изменить режим торговли" }, 500);
+      }
     }
     if (url.pathname === "/api/state" && request.method === "GET") {
       try {
