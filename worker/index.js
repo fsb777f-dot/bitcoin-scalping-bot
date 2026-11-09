@@ -480,7 +480,7 @@ async function runScan(env) {
     ai_enabled: settings.aiEnabled,
     ai_side: aiSide, ai_count: ai?.count ?? 0, ai_entry: aiEntry, ai_sl: aiSl, ai_tp: aiTp,
     ai_confidence: ai?.confidence ?? null, ai_reason: ai?.reason ?? (settings.aiEnabled ? "AI ожидает подтверждения." : "AI выключен."),
-    ai_higher_timeframe: higherTimeframe, ai_open_trade: hasOpenAiTrade || canOpenAiTrade,
+    ai_open_trade: hasOpenAiTrade || canOpenAiTrade,
     ai_selected: ai?.selected ?? [], ai_excluded: ai?.excluded ?? [],
     ai_performance: performance, normal_side: normalSide,
     strategy_results: names.map((name, i) => ({
