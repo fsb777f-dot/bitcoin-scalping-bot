@@ -8,7 +8,7 @@ const WORKER="https://bitcoin-scalping-bot.fsb777f.workers.dev";
 let tf="1m",chart=createMarketChart($("chart")),settings=null,serverState=null,polling=false,previousPrice=null;
 let aiJournalLoading=false;
 const journal=createJournal(supabase);
-const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),consensus_enabled:true,required_matches:3,risk_reward:2,ai_enabled:false});
+const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),consensus_enabled:true,required_matches:3,risk_reward:2,ai_enabled:false,execution_mode:"VIRTUAL",trade_size:null});
 function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"TradingView график":"График не загрузился")}
 function syncControls(){
  if(!settings)return;
@@ -20,7 +20,11 @@ function syncControls(){
   :"Совпадения выключены: достаточно сигнала одной включённой стратегии.";
  $("riskReward").value=String(settings.risk_reward);
  $("aiEnabled").checked=!!settings.ai_enabled;
- $("aiModeLabel").textContent=settings.ai_enabled?"ВКЛ · ПАРАЛЛЕЛЬНЫЙ ТЕСТ":"ВЫКЛ";
+ $("aiModeLabel").textContent=settings.ai_enabled?"ВКЛ · АНАЛИЗ":"ВЫКЛ";
+ $("mainDemoEnabled").checked=settings.execution_mode==="MAIN_DEMO";
+ $("aiDemoEnabled").checked=settings.execution_mode==="AI_DEMO";
+ $("demoTradeSize").value=settings.trade_size==null?"":String(settings.trade_size);
+ $("demoExecutionNote").textContent=settings.execution_mode==="MAIN_DEMO"?"Включён основной DEMO. AI продолжает виртуальную торговлю.":settings.execution_mode==="AI_DEMO"?"Включён AI DEMO. Основной бот продолжает виртуальную торговлю.":"DEMO-торговля выключена. Оба режима работают виртуально.";
 
  $("tfLabel").textContent=tf==="1m"?"1 минута":"5 минут";
  document.querySelectorAll("[data-tf]").forEach(b=>b.classList.toggle("active",b.dataset.tf===tf));
@@ -115,6 +119,27 @@ async function saveSettings(){
  if(error)throw error;
  $("cloudStatus").textContent="Настройки сохранены в облаке · сканер обновит их в ближайшую минуту";
 }
+async function setExecutionMode(mode){
+ const size=Number($("demoTradeSize").value);
+ const response=await fetch(WORKER+"/api/execution-mode",{
+  method:"POST",headers:{"Content-Type":"application/json"},
+  body:JSON.stringify({mode,trade_size:Number.isFinite(size)&&size>0?size:null})
+ });
+ const result=await response.json().catch(()=>({}));
+ if(!response.ok)throw new Error(result.error||"Не удалось изменить режим DEMO");
+ settings.execution_mode=result.execution_mode;
+ settings.trade_size=result.trade_size;
+ syncControls();
+ $("cloudStatus").textContent="Режим торговли сохранён на сервере";
+ return result;
+}
+async function checkDemoRules(){
+ const response=await fetch(WORKER+"/api/capital-demo/rules",{cache:"no-store"});
+ const result=await response.json().catch(()=>({}));
+ if(!response.ok)throw new Error(result.error||"Не удалось проверить правила Capital.com");
+ $("demoExecutionNote").textContent="Capital.com Demo · BTCUSD "+result.marketStatus+" · размер: от "+result.minDealSize+" до "+result.maxDealSize+" BTC · шаг "+result.sizeIncrement+". SL/TP будут повторно проверены перед каждым ордером.";
+ return result;
+}
 async function pollState(){
  if(polling)return;polling=true;
  try{
@@ -147,8 +172,38 @@ $("strategies").addEventListener("click",async e=>{
  syncControls();renderStrategies();
  try{await saveSettings()}catch(err){settings.enabled_strategies[i]=!settings.enabled_strategies[i];syncControls();renderStrategies();alert("Не удалось сохранить настройки: "+err.message)}
 });
+$("mainDemoEnabled").addEventListener("change",async e=>{
+ const old=settings.execution_mode;
+ try{await setExecutionMode(e.target.checked?"MAIN_DEMO":"VIRTUAL")}
+ catch(error){settings.execution_mode=old;syncControls();alert(error.message)}
+});
+$("aiDemoEnabled").addEventListener("change",async e=>{
+ const old=settings.execution_mode;
+ if(e.target.checked&&!settings.ai_enabled){
+  e.target.checked=false;
+  alert("Сначала включи «Самостоятельный AI Trader». После этого можно включить AI DEMO.");
+  return;
+ }
+ try{await setExecutionMode(e.target.checked?"AI_DEMO":"VIRTUAL")}
+ catch(error){settings.execution_mode=old;syncControls();alert(error.message)}
+});
+$("demoTradeSize").addEventListener("change",async()=>{
+ if(settings.execution_mode==="VIRTUAL")return;
+ const old=settings.trade_size;
+ try{await setExecutionMode(settings.execution_mode)}
+ catch(error){$("demoTradeSize").value=old==null?"":String(old);alert(error.message)}
+});
+$("checkDemoRules").addEventListener("click",async()=>{
+ const button=$("checkDemoRules");button.disabled=true;button.textContent="Проверяем…";
+ try{await checkDemoRules()}catch(error){$("demoExecutionNote").textContent=error.message}
+ finally{button.disabled=false;button.textContent="Проверить"}
+});
 $("aiEnabled").addEventListener("change",async e=>{
- const old=!!settings.ai_enabled;settings.ai_enabled=e.target.checked;syncControls();
+ const old=!!settings.ai_enabled;
+ if(!e.target.checked&&settings.execution_mode==="AI_DEMO"){
+  try{await setExecutionMode("VIRTUAL")}catch(error){e.target.checked=true;alert(error.message);return}
+ }
+ settings.ai_enabled=e.target.checked;syncControls();
  $("aiModeLabel").textContent=settings.ai_enabled?"ВКЛ · ПАРАЛЛЕЛЬНЫЙ ТЕСТ":"ВЫКЛ";
  $("aiNote").textContent=settings.ai_enabled?"AI включён. Сервер применит режим при ближайшем сканировании.":"AI выключен. При ближайшем сканировании вернётся обычный режим.";
  try{await saveSettings()}catch(err){settings.ai_enabled=old;syncControls();alert("Не удалось сохранить режим AI: "+err.message)}
