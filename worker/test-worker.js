@@ -39,6 +39,23 @@ async function runTestScan(env) {
     s.id, enabled[s.id] === false ? "WAIT" : raw[s.id]
   ]));
 
+  const tf1 = analysis.timeframes["1m"], tf5 = analysis.timeframes["5m"], tf15 = analysis.timeframes["15m"];
+  analysis.strategy_context = Object.fromEntries(TEST_STRATEGIES.map(strategy => {
+    const side = signals[strategy.id];
+    const expected = side === "BUY" ? "UP" : side === "SELL" ? "DOWN" : "WAIT";
+    const trend5 = side !== "WAIT" && tf5.trend === expected;
+    const trend15 = side !== "WAIT" && tf15.trend === expected;
+    const macd5 = side !== "WAIT" && (side === "BUY" ? tf5.macd.histogram > 0 : tf5.macd.histogram < 0);
+    const rsi1 = side !== "WAIT" && (side === "BUY"
+      ? tf1.rsi14 >= 45 && tf1.rsi14 <= 75
+      : tf1.rsi14 >= 25 && tf1.rsi14 <= 55);
+    return [strategy.id, {
+      side, trend5, trend15, macd5, rsi1,
+      confirmations: [trend5, trend15, macd5, rsi1].filter(Boolean).length,
+      checks: 4
+    }];
+  }));
+
   const open = await db(env, "test_trades?status=eq.OPEN&select=*");
   for (const trade of open || []) {
     const stopped = trade.side === "BUY" ? price <= Number(trade.sl) : price >= Number(trade.sl);
