@@ -48,9 +48,12 @@ let busy = false;
 function render(data) {
   if (data.settings?.enabled) enabled = { ...enabled, ...data.settings.enabled };
   const signals = data.state?.signals || {};
-  const trades = data.trades || [];\n  const analysis = data.state?.analysis;\n  renderMarketAnalysis(analysis);\n  renderMarketAnalysis(data.state?.analysis);
+  const trades = data.trades || [];
+  const analysis = data.state?.analysis;
+  renderMarketAnalysis(analysis);
   $("testCards").innerHTML = STRATEGIES.map(([id, name, description]) => {
     const side = signals[id] || "WAIT";
+    const context = analysis?.strategy_context?.[id];
     const rows = trades.filter(t => t.strategy === id);
     const closed = rows.filter(t => t.status === "CLOSED");
     const wins = closed.filter(t => Number(t.pnl) > 0).length;
