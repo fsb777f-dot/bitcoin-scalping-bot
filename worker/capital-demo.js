@@ -147,3 +147,102 @@ export async function capitalDemoMarketData(env, timeframe = "1m") {
     candles
   };
 }
+
+
+async function capitalDemoAuth(env) {
+  if (!env.CAPITAL_API_KEY || !env.CAPITAL_IDENTIFIER || !env.CAPITAL_PASSWORD) {
+    throw new Error("Capital.com Demo secrets are incomplete");
+  }
+  const session = await request("/session", { "X-CAP-API-KEY": env.CAPITAL_API_KEY }, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      identifier: env.CAPITAL_IDENTIFIER,
+      password: env.CAPITAL_PASSWORD,
+      encryptedPassword: false
+    })
+  });
+  const cst = session.headers.get("CST");
+  const security = session.headers.get("X-SECURITY-TOKEN");
+  if (!cst || !security) throw new Error("Capital.com Demo session tokens were not returned");
+  return { CST: cst, "X-SECURITY-TOKEN": security };
+}
+
+export async function capitalDemoInstrumentRules(env) {
+  const auth = await capitalDemoAuth(env);
+  const result = await request("/markets/BTCUSD", auth);
+  const market = result.data || {};
+  const rules = market.dealingRules || {};
+  const min = Number(rules.minDealSize?.value);
+  const step = Number(rules.minSizeIncrement?.value);
+  const max = Number(rules.maxDealSize?.value);
+  if (![min, step, max].every(Number.isFinite) || min <= 0 || step <= 0 || max < min) {
+    throw new Error("Capital.com did not return valid BTCUSD dealing size rules");
+  }
+  return {
+    mode: "DEMO",
+    epic: "BTCUSD",
+    marketStatus: market.snapshot?.marketStatus || null,
+    minDealSize: min,
+    sizeIncrement: step,
+    maxDealSize: max
+  };
+}
+
+export async function capitalDemoOpenPosition(env, { direction, size, stopLevel, profitLevel }) {
+  if (direction !== "BUY" && direction !== "SELL") throw new Error("Invalid DEMO order direction");
+  const requestedSize = Number(size);
+  if (!Number.isFinite(requestedSize) || requestedSize <= 0) throw new Error("DEMO trade size must be positive");
+
+  const auth = await capitalDemoAuth(env);
+  const marketResult = await request("/markets/BTCUSD", auth);
+  const market = marketResult.data || {};
+  const rules = market.dealingRules || {};
+  const min = Number(rules.minDealSize?.value);
+  const step = Number(rules.minSizeIncrement?.value);
+  const max = Number(rules.maxDealSize?.value);
+  if (![min, step, max].every(Number.isFinite) || min <= 0 || step <= 0 || max < min) {
+    throw new Error("Capital.com BTCUSD dealing rules are unavailable");
+  }
+  if (market.snapshot?.marketStatus !== "TRADEABLE") {
+    throw new Error("Capital.com BTCUSD market is not tradeable");
+  }
+  const steps = (requestedSize - min) / step;
+  if (requestedSize < min || requestedSize > max || Math.abs(steps - Math.round(steps)) > 1e-8) {
+    throw new Error("BTC size " + requestedSize + " is invalid. Allowed: " + min + " to " + max + " in steps of " + step);
+  }
+  const sl = Number(stopLevel), tp = Number(profitLevel);
+  if (!Number.isFinite(sl) || !Number.isFinite(tp) || sl <= 0 || tp <= 0) {
+    throw new Error("Valid Stop Loss and Take Profit are required for DEMO orders");
+  }
+
+  const opened = await request("/positions", auth, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      epic: "BTCUSD",
+      direction,
+      size: requestedSize,
+      stopLevel: sl,
+      profitLevel: tp
+    })
+  });
+  const dealReference = opened.data?.dealReference;
+  if (!dealReference) throw new Error("Capital.com did not return a deal reference");
+
+  const confirmation = await request("/confirms/" + encodeURIComponent(dealReference), auth);
+  const confirmed = confirmation.data || {};
+  const affected = Array.isArray(confirmed.affectedDeals) ? confirmed.affectedDeals : [];
+  const deal = affected.find(item => item.status === "OPENED" && item.dealId);
+  if (confirmed.dealStatus !== "ACCEPTED" || !deal) {
+    throw new Error("Capital.com DEMO order was not confirmed as opened: " + (confirmed.reason || confirmed.dealStatus || confirmed.status || "unknown"));
+  }
+  return {
+    dealReference,
+    dealId: deal.dealId,
+    status: confirmed.status || "OPEN",
+    direction,
+    size: requestedSize,
+    level: Number(confirmed.level) || null
+  };
+}
