@@ -56,7 +56,7 @@ function render(data) {
   const analysis = data.state?.analysis;
   renderMarketAnalysis(analysis);
   const side = signals.consensus || "WAIT";
-  const confirmations = data.state?.confirmations || [];
+  const confirmations = signals.confirmations || [];
   const rows = trades.filter(t => t.strategy === "consensus");
   const closed = rows.filter(t => t.status === "CLOSED");
   const wins = closed.filter(t => Number(t.pnl) > 0).length;
