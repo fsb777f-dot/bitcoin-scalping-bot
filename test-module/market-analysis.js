@@ -1,46 +1,65 @@
 // Multi-timeframe BTC/USD data and technical context for the isolated test worker.
+// Use exchange fallbacks because Binance can reject requests from some Cloudflare regions.
 const TIMEFRAMES = [
-  { id: "1m", interval: 1 },
-  { id: "5m", interval: 5 },
-  { id: "15m", interval: 15 },
-  { id: "1h", interval: 60 },
-  { id: "4h", interval: 240 }
+  { id: "1m", kraken: 1, coinbase: 60, bybit: "1" },
+  { id: "5m", kraken: 5, coinbase: 300, bybit: "5" },
+  { id: "15m", kraken: 15, coinbase: 900, bybit: "15" },
+  { id: "1h", kraken: 60, coinbase: 3600, bybit: "60" },
+  { id: "4h", kraken: 240, coinbase: 21600, bybit: "240" }
 ];
 
-const BINANCE_HOSTS = [
-  "https://api.binance.com",
-  "https://data-api.binance.vision",
-  "https://api1.binance.com",
-  "https://api2.binance.com",
-  "https://api3.binance.com"
-];
-
-async function fetchBinance(path) {
-  const errors = [];
-  for (const host of BINANCE_HOSTS) {
-    try {
-      const response = await fetch(host + path, { headers: { Accept: "application/json" } });
-      if (!response.ok) {
-        errors.push(host + " HTTP " + response.status);
-        continue;
-      }
-      return await response.json();
-    } catch (error) {
-      errors.push(host + ": " + (error?.message || String(error)));
-    }
-  }
-  throw new Error("Binance data unavailable: " + errors.join(" | "));
+async function json(url) {
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error("HTTP " + response.status);
+  return response.json();
 }
 
-function normalizeCandles(rows) {
-  return (Array.isArray(rows) ? rows : []).slice(0, -1).map(row => ({
-    time: Number(row[0]) / 1000,
-    open: Number(row[1]),
-    high: Number(row[2]),
-    low: Number(row[3]),
-    close: Number(row[4]),
-    volume: Number(row[5])
+async function fromKraken(tf) {
+  const [ohlc, ticker] = await Promise.all([
+    json("https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=" + tf.kraken),
+    json("https://api.kraken.com/0/public/Ticker?pair=XBTUSD")
+  ]);
+  if (ohlc.error?.length) throw new Error("Kraken: " + ohlc.error.join(", "));
+  const key = Object.keys(ohlc.result || {}).find(k => k !== "last");
+  const rows = key ? ohlc.result[key] : [];
+  const candles = rows.slice(0, -1).map(r => ({
+    time: Number(r[0]), open: +r[1], high: +r[2], low: +r[3], close: +r[4], volume: +r[6]
   })).filter(c => [c.time,c.open,c.high,c.low,c.close,c.volume].every(Number.isFinite));
+  const tickerKey = Object.keys(ticker.result || {})[0];
+  const price = Number(ticker.result?.[tickerKey]?.c?.[0]);
+  if (candles.length < 60 || !Number.isFinite(price) || price <= 0) throw new Error("Kraken returned insufficient or invalid data");
+  return { candles, price };
+}
+
+async function fromCoinbase(tf) {
+  const [rows, ticker] = await Promise.all([
+    json("https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=" + tf.coinbase),
+    json("https://api.exchange.coinbase.com/products/BTC-USD/ticker")
+  ]);
+  if (!Array.isArray(rows)) throw new Error("Coinbase returned invalid candles");
+  const candles = rows.slice().reverse().slice(0, -1).map(r => ({
+    time: Number(r[0]), low: +r[1], high: +r[2], open: +r[3], close: +r[4], volume: +r[5]
+  })).filter(c => [c.time,c.open,c.high,c.low,c.close,c.volume].every(Number.isFinite));
+  const price = Number(ticker.price);
+  if (candles.length < 60 || !Number.isFinite(price) || price <= 0) throw new Error("Coinbase returned insufficient or invalid data");
+  return { candles, price };
+}
+
+async function fromBybit(tf) {
+  const [market, ticker] = await Promise.all([
+    json("https://api.bybit.com/v5/market/kline?category=spot&symbol=BTCUSDT&interval=" + tf.bybit + "&limit=300"),
+    json("https://api.bybit.com/v5/market/tickers?category=spot&symbol=BTCUSDT")
+  ]);
+  if (market.retCode !== 0 || !Array.isArray(market.result?.list)) throw new Error("Bybit: " + (market.retMsg || "invalid candles"));
+  const candles = market.result.list.slice().reverse().slice(0, -1).map(r => ({
+    time: Number(r[0]) / 1000, open: +r[1], high: +r[2], low: +r[3], close: +r[4], volume: +r[5]
+  })).filter(c => [c.time,c.open,c.high,c.low,c.close,c.volume].every(Number.isFinite));
+  const price = Number(ticker.result?.list?.[0]?.lastPrice);
+  if (candles.length < 60 || !Number.isFinite(price) || price <= 0) throw new Error("Bybit returned insufficient or invalid data");
+  return { candles, price };
 }
 
 const ema = (values, period) => {
@@ -124,30 +143,36 @@ function analyze(candles) {
 }
 
 export async function loadMarketAnalysis() {
-  const responses = await Promise.all(TIMEFRAMES.map(async tf => {
+  const providers = [
+    { name: "Kraken", load: fromKraken },
+    { name: "Coinbase", load: fromCoinbase },
+    { name: "Bybit", load: fromBybit }
+  ];
+  const failures = [];
+
+  for (const provider of providers) {
     try {
-      const rows = await fetchBinance("/api/v3/klines?symbol=BTCUSDT&interval=" + tf.id + "&limit=300");
-      const candles = normalizeCandles(rows);
-      if (candles.length < 60) throw new Error("Недостаточно свечей: " + candles.length);
-      return [tf.id, { candles, analysis: analyze(candles) }];
+      const responses = await Promise.all(TIMEFRAMES.map(async tf => {
+        const result = await provider.load(tf);
+        return [tf.id, result];
+      }));
+      const frames = Object.fromEntries(responses);
+      const oneMinute = frames["1m"];
+      return {
+        price: oneMinute.price,
+        candles: oneMinute.candles,
+        analysis: {
+          source: provider.name,
+          symbol: "BTC/USD",
+          updated_at: new Date().toISOString(),
+          timeframes: Object.fromEntries(responses.map(([id, value]) => [id, analyze(value.candles)])),
+          errors: {}
+        }
+      };
     } catch (error) {
-      return [tf.id, { error: error?.message || String(error) }];
+      failures.push(provider.name + ": " + (error?.message || String(error)));
     }
-  }));
-  const ticker = await fetchBinance("/api/v3/ticker/price?symbol=BTCUSDT");
-  const price = Number(ticker?.price);
-  if (!Number.isFinite(price) || price <= 0) throw new Error("Binance вернул неверную цену BTC/USDT");
-  const frames = Object.fromEntries(responses);
-  if (!frames["1m"]?.candles) throw new Error("Нет минутных свечей: " + (frames["1m"]?.error || "unknown"));
-  return {
-    price,
-    candles: frames["1m"].candles,
-    analysis: {
-      source: "Binance",
-      symbol: "BTC/USDT",
-      updated_at: new Date().toISOString(),
-      timeframes: Object.fromEntries(Object.entries(frames).filter(([, value]) => value.analysis).map(([id, value]) => [id, value.analysis])),
-      errors: Object.fromEntries(Object.entries(frames).filter(([, value]) => value.error).map(([id, value]) => [id, value.error]))
-    }
-  };
+  }
+
+  throw new Error("All market-data sources failed. " + failures.join(" | "));
 }
