@@ -190,10 +190,17 @@ $("aiDemoEnabled").addEventListener("change",async e=>{
  catch(error){settings.execution_mode=old;syncControls();alert(error.message)}
 });
 $("demoTradeSize").addEventListener("change",async()=>{
- if(settings.execution_mode==="VIRTUAL")return;
  const old=settings.trade_size;
- try{await setExecutionMode(settings.execution_mode)}
- catch(error){$("demoTradeSize").value=old==null?"":String(old);alert(error.message)}
+ const value=Number($("demoTradeSize").value);
+ settings.trade_size=Number.isFinite(value)&&value>0?value:null;
+ try{
+  if(settings.execution_mode==="VIRTUAL")await saveSettings();
+  else await setExecutionMode(settings.execution_mode);
+ }catch(error){
+  settings.trade_size=old;
+  $("demoTradeSize").value=old==null?"":String(old);
+  alert(error.message);
+ }
 });
 $("checkDemoRules").addEventListener("click",async()=>{
  const button=$("checkDemoRules");button.disabled=true;button.textContent="Проверяем…";
