@@ -1,5 +1,6 @@
 import { buildContext } from "../js/indicators.js";
 import { strategies, names } from "../strategies/index.js";
+import { capitalDemoStatus } from "./capital-demo.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -469,6 +470,10 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
     if (url.pathname === "/health") return reply({ ok: true, service: "bitcoin-scalping-server", mode: "VIRTUAL_ONLY" });
+    if (url.pathname === "/api/capital-demo/status" && request.method === "GET") {
+      try { return reply(await capitalDemoStatus(env)); }
+      catch (e) { return reply({ connected: false, mode: "DEMO", error: e?.message || "Capital.com Demo connection failed" }, 502); }
+    }
     if (url.pathname === "/api/state" && request.method === "GET") {
       try {
         const rows = await db(env, "bot_state?id=eq.1&select=*");
