@@ -333,6 +333,9 @@ async function getPreviousState(env) {
   const rows = await db(env, "bot_state?id=eq.1&select=ai_side");
   return rows?.[0] || {};
 }
+function aiSideCanBeOpened(ai) {
+  return ai?.side === "BUY" || ai?.side === "SELL";
+}
 function applyHigherTimeframeConfirmation(ai, context) {
   if (!ai || ai.side === "WAIT") return ai;
   const trend = context.e9 > context.e21 && context.last > context.e21 ? "BUY"
@@ -436,6 +439,7 @@ async function runScan(env) {
   const openAiTrades = settings.aiEnabled ? await getOpenAiTrades(env) : [];
   const hasOpenAiTrade = Array.isArray(openAiTrades) && openAiTrades.length > 0;
   const aiSignalChanged = ai?.side !== "WAIT" && ai?.side !== previousState.ai_side;
+  const canOpenAiTrade = settings.aiEnabled && aiSideCanBeOpened(ai) && !hasOpenAiTrade && aiSignalChanged;
   const candle = candles[candles.length - 1];
   const slDistance = context.atr * 1.2;
 
@@ -456,12 +460,12 @@ async function runScan(env) {
 
   // AI is an independent paper trader. Its switch never changes the classic scanner.
   const aiSide = ai?.side || "WAIT";
-  const aiEntry = settings.aiEnabled && aiSide === "BUY" ? market.ask
-    : settings.aiEnabled && aiSide === "SELL" ? market.bid : null;
+  const aiEntry = canOpenAiTrade && aiSide === "BUY" ? market.ask
+    : canOpenAiTrade && aiSide === "SELL" ? market.bid : null;
   const aiSl = aiSide === "BUY" ? aiEntry - slDistance : aiSide === "SELL" ? aiEntry + slDistance : null;
   const aiTp = aiSide === "BUY" ? aiEntry + slDistance * settings.riskReward
     : aiSide === "SELL" ? aiEntry - slDistance * settings.riskReward : null;
-  if (settings.aiEnabled && aiSide !== "WAIT" && !hasOpenAiTrade && aiSignalChanged) {
+  if (canOpenAiTrade) {
     await insertTradeOnce(env, {
       trade_key: "ai:" + settings.timeframe + ":" + candle.time + ":" + aiSide,
       trade_time: Date.now(), side: aiSide, entry: aiEntry, sl: aiSl, tp: aiTp,
@@ -479,7 +483,7 @@ async function runScan(env) {
     ai_enabled: settings.aiEnabled,
     ai_side: aiSide, ai_count: ai?.count ?? 0, ai_entry: aiEntry, ai_sl: aiSl, ai_tp: aiTp,
     ai_confidence: ai?.confidence ?? null, ai_reason: ai?.reason ?? (settings.aiEnabled ? "AI ожидает подтверждения." : "AI выключен."),
-    ai_higher_timeframe: higherTimeframe, ai_open_trade: hasOpenAiTrade,
+    ai_higher_timeframe: higherTimeframe, ai_open_trade: hasOpenAiTrade || canOpenAiTrade,
     ai_selected: ai?.selected ?? [], ai_excluded: ai?.excluded ?? [],
     ai_performance: performance, normal_side: normalSide,
     strategy_results: names.map((name, i) => ({
