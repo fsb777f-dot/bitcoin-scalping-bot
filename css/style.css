@@ -127,3 +127,15 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 
 /* AI journal controls and expanded history */
 .ai-journal-heading{flex-wrap:wrap}.ai-journal-heading button{flex-shrink:0;cursor:pointer}.ai-journal-heading button:disabled{opacity:.6;cursor:wait}
+
+/* Capital.com Demo execution controls */
+.execution-control{margin:10px 0 13px;padding:11px;background:#0c1320;border:1px solid var(--line);border-radius:11px}
+.execution-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.execution-heading b{font-size:12px}
+.execution-heading .notice{margin:5px 0 0;max-width:620px}
+.execution-size{display:flex;align-items:center;gap:8px;margin-top:11px;flex-wrap:wrap}
+.execution-size label{font-size:11px;color:var(--muted)}
+.execution-size input{width:105px;min-width:0;padding:8px;background:#111d2e;color:var(--text);border:1px solid #3a4b65;border-radius:8px;font-size:13px}
+.execution-size button{padding:8px 10px;cursor:pointer}
+.execution-size button:disabled{opacity:.6}
+.execution-note{margin-top:9px;line-height:1.45}
