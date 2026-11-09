@@ -204,8 +204,13 @@ export async function capitalDemoOpenPosition(env, { direction, size, stopLevel,
   if (![min, step, max].every(Number.isFinite) || min <= 0 || step <= 0 || max < min) {
     throw new Error("Capital.com BTCUSD dealing rules are unavailable");
   }
-  if (market.snapshot?.marketStatus !== "TRADEABLE") {
+  const snapshot = market.snapshot || {};
+  if (snapshot.marketStatus !== "TRADEABLE") {
     throw new Error("Capital.com BTCUSD market is not tradeable");
+  }
+  const bid = Number(snapshot.bid), ask = Number(snapshot.offer);
+  if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask < bid) {
+    throw new Error("Capital.com returned an invalid BTCUSD quote; DEMO order blocked");
   }
   const steps = (requestedSize - min) / step;
   if (requestedSize < min || requestedSize > max || Math.abs(steps - Math.round(steps)) > 1e-8) {
@@ -214,6 +219,10 @@ export async function capitalDemoOpenPosition(env, { direction, size, stopLevel,
   const sl = Number(stopLevel), tp = Number(profitLevel);
   if (!Number.isFinite(sl) || !Number.isFinite(tp) || sl <= 0 || tp <= 0) {
     throw new Error("Valid Stop Loss and Take Profit are required for DEMO orders");
+  }
+  const levelsValid = direction === "BUY" ? sl < bid && tp > ask : sl > ask && tp < bid;
+  if (!levelsValid) {
+    throw new Error(direction + " DEMO order blocked: Stop Loss and Take Profit must be on the correct sides of the current BTCUSD quote.");
   }
 
   const opened = await request("/positions", auth, {
