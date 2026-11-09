@@ -286,7 +286,12 @@ export async function capitalDemoOpenPosition(env, { direction, size, stopLevel,
   }
   const levelsValid = direction === "BUY" ? sl < bid && tp > ask : sl > ask && tp < bid;
   if (!levelsValid) {
-    throw new Error(direction + " DEMO order blocked: Stop Loss and Take Profit must be on the correct sides of the current BTCUSD quote.");
+    const quote = "Capital.com BTCUSD bid=" + bid + ", ask=" + ask;
+    const levels = "signal SL=" + sl + ", TP=" + tp;
+    throw new Error(
+      direction + " DEMO signal skipped: price moved beyond the original protection levels. " +
+      quote + "; " + levels + ". No order was sent; original SL/TP were not changed."
+    );
   }
 
   const opened = await request("/positions", auth, {
