@@ -1,4 +1,5 @@
 import { evaluateTestStrategies, testRiskLevels, TEST_STRATEGIES } from "../test-module/strategies.js";
+import { loadMarketAnalysis } from "../test-module/market-analysis.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -28,28 +29,8 @@ async function db(env, path, init = {}) {
   return body ? JSON.parse(body) : null;
 }
 
-async function marketData() {
-  const [ohlcResponse, tickerResponse] = await Promise.all([
-    fetch("https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1"),
-    fetch("https://api.kraken.com/0/public/Ticker?pair=XBTUSD")
-  ]);
-  if (!ohlcResponse.ok || !tickerResponse.ok) throw new Error("Kraken market request failed");
-  const [ohlc, ticker] = await Promise.all([ohlcResponse.json(), tickerResponse.json()]);
-  if (ohlc.error?.length || ticker.error?.length) throw new Error("Kraken API error");
-  const key = Object.keys(ohlc.result || {}).find(k => k !== "last");
-  const candles = (key ? ohlc.result[key] : []).slice(0, -1).map(k => ({
-    time: Number(k[0]), open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[6]
-  }));
-  const tickerKey = Object.keys(ticker.result || {})[0];
-  const price = Number(ticker.result?.[tickerKey]?.c?.[0]);
-  if (candles.length < 60 || !Number.isFinite(price) || price <= 0) {
-    throw new Error("Kraken returned insufficient or invalid BTC/USD data");
-  }
-  return { candles, price };
-}
-
 async function runTestScan(env) {
-  const { candles, price } = await marketData();
+  const { candles, price, analysis } = await loadMarketAnalysis();
   const candle = candles.at(-1);
   const rows = await db(env, "test_settings?id=eq.1&select=*");
   const enabled = rows?.[0]?.enabled || { brooks: true, cameron: true, smb: true };
@@ -94,9 +75,9 @@ async function runTestScan(env) {
 
   await db(env, "test_state?on_conflict=id", {
     method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ id: 1, timeframe: "1m", price, signals, updated_at: new Date().toISOString() })
+    body: JSON.stringify({ id: 1, timeframe: "1m", price, signals, analysis, updated_at: new Date().toISOString() })
   });
-  return { ok: true, price, signals };
+  return { ok: true, price, signals, analysis };
 }
 
 async function getTestData(env) {
