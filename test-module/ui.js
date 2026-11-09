@@ -18,9 +18,13 @@ function renderMarketAnalysis(analysis) {
     host.innerHTML = '<p class="notice">Ожидание серверного расчёта индикаторов. Worker обновляет данные раз в минуту.</p>';
     return;
   }
+  const errors = analysis.errors || {};
+  const warning = Object.keys(errors).length
+    ? '<p class="notice">Временно нет данных: ' + Object.keys(errors).join(", ") + '. Остальные таймфреймы продолжают работать.</p>'
+    : "";
   host.innerHTML = '<div class="test-market-meta">Источник: ' + (analysis.source || "—") + ' · ' +
     (analysis.updated_at ? new Date(analysis.updated_at).toLocaleTimeString("ru-RU") : "—") + '</div>' +
-    '<div class="test-market-grid">' + Object.entries(FRAME_NAMES).map(([id, label]) => {
+    warning + '<div class="test-market-grid">' + Object.entries(FRAME_NAMES).map(([id, label]) => {
       const x = frames[id];
       if (!x) return '<article class="test-market-card"><b>' + label + '</b><p class="notice">Нет данных</p></article>';
       const fib = x.fibonacci;
