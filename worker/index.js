@@ -42,7 +42,7 @@ async function getSettings(env) {
     enabled,
     consensusEnabled: s.consensus_enabled !== false,
     requiredMatches: clamp(s.required_matches ?? 3, 1, names.length),
-    riskReward: 2.5,
+    riskReward: [1, 1.5, 2, 2.5, 3, 4].includes(Number(s.risk_reward)) ? Number(s.risk_reward) : 2,
     executionMode: ["MAIN_DEMO", "AI_DEMO"].includes(s.execution_mode) ? s.execution_mode : "VIRTUAL",
     tradeSize: Number(s.trade_size) > 0 ? Number(s.trade_size) : null
   };
@@ -350,22 +350,9 @@ async function openDemoTradeOnce(env, trade, executionMode, size) {
   });
   return { duplicate: false, dealId: order.dealId };
 }
-async function getOpenAiTrades(env) {
-  return db(env, "trades?status=eq.OPEN&trade_key=like.ai%25&select=trade_key,side&limit=1");
-}
 async function getPreviousState(env) {
   const rows = await db(env, "bot_state?id=eq.1&select=ai_side,side");
   return rows?.[0] || {};
-}
-function applyHigherTimeframeConfirmation(ai, context) {
-  if (!ai || ai.side === "WAIT") return ai;
-  const trend = context.e9 > context.e21 && context.last > context.e21 ? "BUY"
-    : context.e9 < context.e21 && context.last < context.e21 ? "SELL" : "WAIT";
-  if (trend === ai.side) return { ...ai, higher_timeframe: trend };
-  return {
-    ...ai, side: "WAIT", count: 0, selected: [], higher_timeframe: trend,
-    reason: "AI ждёт: сигнал не подтверждён старшим таймфреймом."
-  };
 }
 async function getStrategyPerformance(env) {
   const rows = await db(env, "trades?status=eq.CLOSED&trade_key=like.ai%25&select=confirmations,pnl,result,trade_time,trade_key&order=trade_time.desc&limit=300");
@@ -411,17 +398,7 @@ async function runScan(env) {
   const settings = await getSettings(env);
   const previousState = await getPreviousState(env);
   const market = await getMarketData(env, settings.timeframe, settings.executionMode);
-  const higherTimeframe = settings.timeframe === "1m" ? "5m" : "15m";
   const { candles, price, source } = market;
-  let higherContext = null;
-  if (settings.aiEnabled) {
-    try {
-      const higherMarket = await getMarketData(env, higherTimeframe, settings.executionMode);
-      if (higherMarket.candles.length >= 60) higherContext = buildContext(higherMarket.candles);
-    } catch (error) {
-      console.error("AI higher-timeframe confirmation unavailable", error?.message || String(error));
-    }
-  }
   if (candles.length < 60) throw new Error("Not enough completed candles");
   const context = buildContext(candles);
   const results = strategies.map(fn => { try { return fn(context); } catch { return "WAIT"; } });
@@ -458,19 +435,11 @@ async function runScan(env) {
     }
   }
   let ai = settings.aiEnabled ? aiDecision(results, names.map(() => true), performance) : null;
-  // Fail closed: AI does not open a position unless the higher timeframe confirms it.
-  if (settings.aiEnabled) {
-    ai = higherContext
-      ? applyHigherTimeframeConfirmation(ai, higherContext)
-      : { ...ai, side: "WAIT", count: 0, selected: [], reason: "AI ждёт: нет данных старшего таймфрейма." };
-  }
-  const openAiTrades = settings.aiEnabled ? await getOpenAiTrades(env) : [];
-  const hasOpenAiTrade = Array.isArray(openAiTrades) && openAiTrades.length > 0;
   const candle = candles[candles.length - 1];
-  // Open at most one trade per strategy per completed candle, including repeated signals.
+  // Match the earlier paper-trading behavior: AI may enter again on each new candle.
   const aiSignalChanged = (ai?.side === "BUY" || ai?.side === "SELL") && candle.time !== previousState.candle_time;
   const canOpenAiTrade = settings.aiEnabled && aiSignalChanged;
-  const atrSlDistance = context.atr * 1.5;
+  const atrSlDistance = context.atr * 1.2;
   // Protective levels use the same ATR distance in every mode and respect live spread.
   const slDistance = Math.max(atrSlDistance, market.spread * 1.05);
 
