@@ -1,6 +1,6 @@
 import { buildContext } from "../js/indicators.js";
 import { strategies, names } from "../strategies/index.js";
-import { capitalDemoStatus, capitalDemoMarketData, capitalDemoInstrumentRules, capitalDemoOpenPosition, capitalDemoReconcile } from "./capital-demo.js";
+import { capitalDemoStatus, capitalDemoMarketData, capitalDemoInstrumentRules, capitalDemoOpenPosition, capitalDemoUpdatePosition, capitalDemoReconcile } from "./capital-demo.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -40,7 +40,7 @@ async function getSettings(env) {
     timeframe: s.timeframe === "5m" ? "5m" : "1m",
     aiEnabled: s.ai_enabled === true,
     enabled,
-    consensusEnabled: s.consensus_enabled !== false,
+    consensusEnabled: true,
     requiredMatches: clamp(s.required_matches ?? 3, 1, names.length),
     riskReward: [1, 1.5, 2, 2.5, 3, 4].includes(Number(s.risk_reward)) ? Number(s.risk_reward) : 2,
     executionMode: ["MAIN_DEMO", "AI_DEMO"].includes(s.execution_mode) ? s.execution_mode : "VIRTUAL",
@@ -301,39 +301,76 @@ async function syncCapitalDemoTrades(env) {
 }
 async function updateOpenTrades(env, bid, ask) {
   const open = await db(env, "trades?status=eq.OPEN&select=*");
+  const spread = Math.max(0, Number(ask) - Number(bid));
   for (const t of open || []) {
-    if (t.execution_mode && t.execution_mode !== "VIRTUAL") continue;
-    // A BUY closes at Bid; a SELL closes at Ask. Entry prices are stored at the
-    // opposite side of the quote, so the spread is included exactly once.
+    const isDemo = t.execution_mode === "MAIN_DEMO" || t.execution_mode === "AI_DEMO";
     const price = t.side === "BUY" ? bid : ask;
-    let sl = Number(t.sl);
-    const distance = Number(t.trailing_distance) || Math.abs(Number(t.entry) - sl);
+    const entry = Number(t.entry);
+    const initialSl = Number(t.sl);
+    const target = Number(t.tp);
+    const risk = Number(t.trailing_distance) || Math.abs(entry - initialSl);
+    const targetDistance = Math.abs(target - entry);
+    if (!Number.isFinite(entry) || !Number.isFinite(price) || !risk || !targetDistance) continue;
+
+    let sl = initialSl;
     let trailingActive = Boolean(t.trailing_active);
-    let exit = null, pnl = null, result = null, status = "OPEN";
+    let patch = null;
+
+    // Exit prices are Bid for BUY and Ask for SELL. Offset the entry by spread
+    // so the break-even stop covers the spread as well.
+    const breakEven = t.side === "BUY" ? entry + spread : entry - spread;
+    const favorableMove = t.side === "BUY" ? price - entry : entry - price;
+
+    if (isDemo) {
+      // Capital.com owns execution/closure of DEMO positions. The Worker only
+      // amends the broker stop and lets reconciliation record the close.
+      if (!trailingActive && favorableMove >= targetDistance * 0.75) {
+        sl = breakEven;
+        trailingActive = true;
+      } else if (trailingActive) {
+        const trailGap = Math.max(risk * 0.5, spread * 1.05);
+        const nextStop = t.side === "BUY" ? price - trailGap : price + trailGap;
+        if (t.side === "BUY") sl = Math.max(sl, breakEven, nextStop);
+        else sl = Math.min(sl, breakEven, nextStop);
+      }
+      if (trailingActive && sl > 0 && Math.abs(sl - initialSl) > 1e-8) {
+        try {
+          await capitalDemoUpdatePosition(env, t.capital_deal_id, sl);
+          patch = { sl, trailing_active: true };
+        } catch (error) {
+          console.error("Capital.com trailing stop update failed", t.trade_key, error?.message || String(error));
+        }
+      }
+      if (patch) await patchTrade(env, t.trade_key, patch);
+      continue;
+    }
+
+    // Virtual positions are managed locally. First protect the original SL;
+    // at 75% of the TP distance move to break-even, then trail by half of 1R.
     if (!trailingActive) {
       const stopped = t.side === "BUY" ? price <= sl : price >= sl;
-      const target = t.side === "BUY" ? price >= Number(t.tp) : price <= Number(t.tp);
       if (stopped) {
-        exit = sl; pnl = t.side === "BUY" ? exit - Number(t.entry) : Number(t.entry) - exit;
-        status = "CLOSED"; result = "SL";
-      } else if (target) {
-        trailingActive = true;
-        sl = Number(t.tp);
+        const pnl = t.side === "BUY" ? sl - entry : entry - sl;
+        await patchTrade(env, t.trade_key, { exit: sl, pnl, status: "CLOSED", result: "SL" });
+        continue;
       }
-    }
-    if (status === "OPEN" && trailingActive && distance > 0) {
-      const nextStop = t.side === "BUY" ? price - distance : price + distance;
-      if (t.side === "BUY" && nextStop > sl) sl = nextStop;
-      if (t.side === "SELL" && nextStop < sl) sl = nextStop;
+      if (favorableMove >= targetDistance * 0.75) {
+        sl = breakEven;
+        trailingActive = true;
+      }
+    } else {
       const hit = t.side === "BUY" ? price <= sl : price >= sl;
       if (hit) {
-        exit = sl; pnl = t.side === "BUY" ? exit - Number(t.entry) : Number(t.entry) - exit;
-        status = "CLOSED"; result = "TRAILING_STOP";
+        const pnl = t.side === "BUY" ? sl - entry : entry - sl;
+        await patchTrade(env, t.trade_key, { exit: sl, pnl, status: "CLOSED", result: "TRAILING_STOP" });
+        continue;
       }
+      const trailGap = Math.max(risk * 0.5, spread * 1.05);
+      const nextStop = t.side === "BUY" ? price - trailGap : price + trailGap;
+      if (t.side === "BUY") sl = Math.max(sl, breakEven, nextStop);
+      else sl = Math.min(sl, breakEven, nextStop);
     }
-    await patchTrade(env, t.trade_key, {
-      sl, trailing_active: trailingActive, exit, pnl, status, result
-    });
+    await patchTrade(env, t.trade_key, { sl, trailing_active: trailingActive });
   }
 }
 async function openDemoTradeOnce(env, trade, executionMode, size) {
@@ -403,13 +440,11 @@ async function runScan(env) {
   const context = buildContext(candles);
   const results = strategies.map(fn => { try { return fn(context); } catch { return "WAIT"; } });
   const activeCount = settings.enabled.filter(Boolean).length;
-  const required = settings.consensusEnabled ? settings.requiredMatches : 1;
+  const required = settings.requiredMatches;
   const buys = results.filter((s, i) => settings.enabled[i] && s === "BUY").length;
   const sells = results.filter((s, i) => settings.enabled[i] && s === "SELL").length;
-  const normalSide = activeCount >= required
-    ? buys >= required && buys > sells ? "BUY"
-    : sells >= required && sells > buys ? "SELL" : "WAIT"
-    : "WAIT";
+  const normalSide = buys >= required && buys > sells ? "BUY"
+    : sells >= required && sells > buys ? "SELL" : "WAIT";
   try {
     const sync = await syncCapitalDemoTrades(env);
     if (sync.closed || sync.unresolved) console.log("Capital.com DEMO journal sync", sync);
@@ -450,11 +485,12 @@ async function runScan(env) {
     : normalSide === "SELL" ? normalEntry - slDistance * settings.riskReward : null;
   let executionError = null;
   // Enter on every new candle with a directional signal; trade_key prevents duplicate scans.
-  const normalSignalChanged = (normalSide === "BUY" || normalSide === "SELL") && candle.time !== previousState.candle_time;
+  const scanMinute = Math.floor(Date.now() / 60000);
+  const normalSignalChanged = normalSide === "BUY" || normalSide === "SELL";
   if (normalSignalChanged) {
     const normalTrade = {
-      trade_key: "server:" + settings.timeframe + ":" + candle.time + ":" + normalSide,
-      trade_time: Date.now(), side: normalSide, entry: normalEntry, sl: normalSl, tp: normalTp,
+      trade_key: "server:" + settings.timeframe + ":" + candle.time + ":" + scanMinute + ":" + normalSide,
+      trade_time: scanMinute * 60000, side: normalSide, entry: normalEntry, sl: normalSl, tp: normalTp,
       initial_tp: normalTp, trailing_distance: Math.abs(normalEntry - normalSl), trailing_active: false,
       confirmations: names.filter((_, i) => settings.enabled[i] && results[i] === normalSide),
       exit: null, pnl: null, status: "OPEN", result: null, updated_at: new Date().toISOString()
