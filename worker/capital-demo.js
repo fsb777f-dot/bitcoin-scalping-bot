@@ -294,6 +294,9 @@ export async function capitalDemoOpenPosition(env, { direction, size, stopLevel,
     );
   }
 
+  // Keep TP as a server-side trailing activation level, not a broker hard TP.
+  // This lets the Worker move the protective stop into profit after price
+  // reaches the target zone instead of the broker closing the position first.
   const opened = await request("/positions", auth, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -301,8 +304,7 @@ export async function capitalDemoOpenPosition(env, { direction, size, stopLevel,
       epic: "BTCUSD",
       direction,
       size: requestedSize,
-      stopLevel: sl,
-      profitLevel: tp
+      stopLevel: sl
     })
   });
   const dealReference = opened.data?.dealReference;
@@ -323,4 +325,24 @@ export async function capitalDemoOpenPosition(env, { direction, size, stopLevel,
     size: requestedSize,
     level: Number(confirmed.level) || null
   };
+}
+
+
+export async function capitalDemoUpdatePosition(env, dealId, stopLevel) {
+  if (!dealId) throw new Error("Capital.com deal ID is required to update the stop");
+  const level = Number(stopLevel);
+  if (!Number.isFinite(level) || level <= 0) throw new Error("Invalid trailing stop level");
+  const auth = await capitalDemoAuth(env);
+  const result = await request("/positions/" + encodeURIComponent(dealId), auth, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stopLevel: level })
+  });
+  const reference = result.data?.dealReference;
+  if (!reference) throw new Error("Capital.com did not confirm the stop update");
+  const confirmation = await request("/confirms/" + encodeURIComponent(reference), auth);
+  if (confirmation.data?.dealStatus !== "ACCEPTED") {
+    throw new Error("Capital.com did not accept the trailing stop update");
+  }
+  return { dealReference: reference, stopLevel: level };
 }
