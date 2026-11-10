@@ -253,7 +253,7 @@ export async function capitalDemoInstrumentRules(env) {
   };
 }
 
-export async function capitalDemoOpenPosition(env, { direction, size, stopLevel, profitLevel }) {
+export async function capitalDemoOpenPosition(env, { direction, size, stopLevel, profitLevel, trailingEnabled = false }) {
   if (direction !== "BUY" && direction !== "SELL") throw new Error("Invalid DEMO order direction");
   const requestedSize = Number(size);
   if (!Number.isFinite(requestedSize) || requestedSize <= 0) throw new Error("DEMO trade size must be positive");
@@ -294,18 +294,19 @@ export async function capitalDemoOpenPosition(env, { direction, size, stopLevel,
     );
   }
 
-  // Keep TP as a server-side trailing activation level, not a broker hard TP.
-  // This lets the Worker move the protective stop into profit after price
-  // reaches the target zone instead of the broker closing the position first.
+  // The main scanner uses TP as a trailing activation level, so it leaves
+  // broker TP unset. Other execution modes keep their existing broker TP.
+  const orderBody = {
+    epic: "BTCUSD",
+    direction,
+    size: requestedSize,
+    stopLevel: sl
+  };
+  if (!trailingEnabled) orderBody.profitLevel = tp;
   const opened = await request("/positions", auth, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      epic: "BTCUSD",
-      direction,
-      size: requestedSize,
-      stopLevel: sl
-    })
+    body: JSON.stringify(orderBody)
   });
   const dealReference = opened.data?.dealReference;
   if (!dealReference) throw new Error("Capital.com did not return a deal reference");
