@@ -12,12 +12,11 @@ const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),conse
 function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"TradingView график":"График не загрузился")}
 function syncControls(){
  if(!settings)return;
- $("consensusEnabled").checked=settings.consensus_enabled;
+ $("consensusEnabled").checked=true;
+ $("consensusEnabled").disabled=true;
  $("requiredMatches").value=String(settings.required_matches);
- $("requiredMatches").disabled=!settings.consensus_enabled;
- $("matchHint").textContent=settings.consensus_enabled
-  ?"Для сигнала нужно минимум "+settings.required_matches+" одинаковых подтверждения. Если включённых стратегий меньше — сигнал не откроется."
-  :"Совпадения выключены: достаточно сигнала одной включённой стратегии.";
+ $("requiredMatches").disabled=false;
+ $("matchHint").textContent="Основной бот открывает сделку, когда выбранное тобой число включённых стратегий совпадает по направлению.";
  $("riskReward").value=String(settings.risk_reward);
  $("aiEnabled").checked=!!settings.ai_enabled;
  $("aiModeLabel").textContent=settings.ai_enabled?"ВКЛ · АНАЛИЗ":"ВЫКЛ";
@@ -105,6 +104,7 @@ async function loadSettings(){
  const {data,error}=await supabase.from("bot_settings").select("*").eq("id",1).maybeSingle();
  if(error)throw error;
  settings={...defaults(),...(data||{})};
+ settings.consensus_enabled=true;
  if(!Array.isArray(settings.enabled_strategies)||settings.enabled_strategies.length!==names.length)settings.enabled_strategies=names.map(()=>true);
  settings.enabled_strategies=settings.enabled_strategies.map(Boolean);
  if(![1,1.5,2,2.5,3,4].includes(Number(settings.risk_reward)))settings.risk_reward=2;
@@ -114,7 +114,7 @@ async function loadSettings(){
  renderStrategies();
 }
 async function saveSettings(){
- const payload={id:1,timeframe:tf,enabled_strategies:settings.enabled_strategies,consensus_enabled:settings.consensus_enabled,required_matches:settings.required_matches,risk_reward:settings.risk_reward,ai_enabled:!!settings.ai_enabled,execution_mode:settings.execution_mode||"VIRTUAL",trade_size:settings.trade_size??null,updated_at:new Date().toISOString()};
+ const payload={id:1,timeframe:tf,enabled_strategies:settings.enabled_strategies,consensus_enabled:true,required_matches:settings.required_matches,risk_reward:settings.risk_reward,ai_enabled:!!settings.ai_enabled,execution_mode:settings.execution_mode||"VIRTUAL",trade_size:settings.trade_size??null,updated_at:new Date().toISOString()};
  const {error}=await supabase.from("bot_settings").upsert(payload,{onConflict:"id"});
  if(error)throw error;
  $("cloudStatus").textContent="Настройки сохранены в облаке · сканер обновит их в ближайшую минуту";
