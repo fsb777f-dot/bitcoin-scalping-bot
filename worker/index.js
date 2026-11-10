@@ -303,81 +303,51 @@ async function updateOpenTrades(env, bid, ask) {
   const open = await db(env, "trades?status=eq.OPEN&select=*");
   const spread = Math.max(0, Number(ask) - Number(bid));
   for (const t of open || []) {
+    if (t.side !== "BUY" && t.side !== "SELL") continue;
     const isDemo = t.execution_mode === "MAIN_DEMO" || t.execution_mode === "AI_DEMO";
     const price = t.side === "BUY" ? bid : ask;
-    const entry = Number(t.entry);
-    const initialSl = Number(t.sl);
-    const target = Number(t.tp);
-    const risk = Number(t.trailing_distance) || Math.abs(entry - initialSl);
-    const targetDistance = Math.abs(target - entry);
-    if (!Number.isFinite(entry) || !Number.isFinite(price) || !risk || !targetDistance) continue;
-
-    let sl = initialSl;
-    let trailingActive = Boolean(t.trailing_active);
-    let patch = null;
-
-    // Exit prices are Bid for BUY and Ask for SELL. Offset the entry by spread
-    // so the break-even stop covers the spread as well.
-    const breakEven = t.side === "BUY" ? entry + spread : entry - spread;
-    const favorableMove = t.side === "BUY" ? price - entry : entry - price;
-
-    if (isDemo) {
-      // Capital.com owns execution/closure of DEMO positions. The Worker only
-      // amends the broker stop and lets reconciliation record the close.
-      if (!trailingActive && favorableMove >= targetDistance * 0.75) {
-        sl = breakEven;
-        trailingActive = true;
-      } else if (trailingActive) {
-        const trailGap = Math.max(risk * 0.5, spread * 1.05);
-        const nextStop = t.side === "BUY" ? price - trailGap : price + trailGap;
-        if (t.side === "BUY") sl = Math.max(sl, breakEven, nextStop);
-        else sl = Math.min(sl, breakEven, nextStop);
-      }
-      if (trailingActive && sl > 0 && Math.abs(sl - initialSl) > 1e-8) {
-        try {
-          await capitalDemoUpdatePosition(env, t.capital_deal_id, sl);
-          patch = { sl, trailing_active: true };
-        } catch (error) {
-          console.error("Capital.com trailing stop update failed", t.trade_key, error?.message || String(error));
-        }
-      }
-      if (patch) await patchTrade(env, t.trade_key, patch);
+    const entry = Number(t.entry), currentStop = Number(t.sl);
+    const risk = Number(t.trailing_distance) || Math.abs(entry - currentStop);
+    if (![price, entry, currentStop, risk].every(Number.isFinite) || risk <= 0) continue;
+    const buy = t.side === "BUY";
+    const hit = buy ? price <= currentStop : price >= currentStop;
+    if (!isDemo && hit) {
+      const pnl = buy ? currentStop - entry : entry - currentStop;
+      await patchTrade(env, t.trade_key, {
+        exit: currentStop, pnl, status: "CLOSED",
+        result: t.trailing_active ? "TRAILING_STOP" : "SL"
+      });
       continue;
     }
-
-    // Virtual positions are managed locally. First protect the original SL;
-    // at 75% of the TP distance move to break-even, then trail by half of 1R.
-    if (!trailingActive) {
-      const stopped = t.side === "BUY" ? price <= sl : price >= sl;
-      if (stopped) {
-        const pnl = t.side === "BUY" ? sl - entry : entry - sl;
-        await patchTrade(env, t.trade_key, { exit: sl, pnl, status: "CLOSED", result: "SL" });
-        continue;
-      }
-      if (favorableMove >= targetDistance * 0.75) {
-        sl = breakEven;
-        trailingActive = true;
+    // No TP exit: trail once the executable closing quote is in profit.
+    const favorableMove = buy ? price - entry : entry - price;
+    if (favorableMove <= 0) continue;
+    // Protect half the observed favorable move; never move a stop backwards.
+    const desired = buy ? entry + favorableMove * 0.5 : entry - favorableMove * 0.5;
+    const nextStop = buy ? Math.max(currentStop, desired) : Math.min(currentStop, desired);
+    if (buy ? nextStop <= currentStop + 1e-8 : nextStop >= currentStop - 1e-8) continue;
+    if (isDemo) {
+      // Capital.com enforces minimum stop distance. Do not claim a broker stop
+      // changed unless the broker confirms the amendment.
+      if (!t.capital_deal_id) continue;
+      const minimumGap = Math.max(spread * 1.05, 1e-8);
+      if (buy ? nextStop >= bid - minimumGap : nextStop <= ask + minimumGap) continue;
+      try {
+        await capitalDemoUpdatePosition(env, t.capital_deal_id, nextStop);
+        await patchTrade(env, t.trade_key, { sl: nextStop, trailing_active: true });
+      } catch (error) {
+        console.error("Capital.com trailing stop update failed", t.trade_key, error?.message || String(error));
       }
     } else {
-      const hit = t.side === "BUY" ? price <= sl : price >= sl;
-      if (hit) {
-        const pnl = t.side === "BUY" ? sl - entry : entry - sl;
-        await patchTrade(env, t.trade_key, { exit: sl, pnl, status: "CLOSED", result: "TRAILING_STOP" });
-        continue;
-      }
-      const trailGap = Math.max(risk * 0.5, spread * 1.05);
-      const nextStop = t.side === "BUY" ? price - trailGap : price + trailGap;
-      if (t.side === "BUY") sl = Math.max(sl, breakEven, nextStop);
-      else sl = Math.min(sl, breakEven, nextStop);
+      await patchTrade(env, t.trade_key, { sl: nextStop, trailing_active: true });
     }
-    await patchTrade(env, t.trade_key, { sl, trailing_active: trailingActive });
   }
 }
 async function openDemoTradeOnce(env, trade, executionMode, size) {
   const existing = await db(env, "trades?trade_key=eq." + encodeURIComponent(trade.trade_key) + "&select=trade_key&limit=1");
   if (Array.isArray(existing) && existing.length) return { duplicate: true };
   const order = await capitalDemoOpenPosition(env, {
-    direction: trade.side, size, stopLevel: trade.sl, profitLevel: trade.tp,
+    direction: trade.side, size, stopLevel: trade.sl,
     trailingEnabled: executionMode === "MAIN_DEMO" || executionMode === "AI_DEMO"
   });
   await insertTradeOnce(env, {
