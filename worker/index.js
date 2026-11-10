@@ -1,6 +1,7 @@
 import { buildContext } from "../js/indicators.js";
 import { strategies, names } from "../strategies/index.js";
 import { capitalDemoStatus, capitalDemoMarketData, capitalDemoMarketBundle, capitalDemoInstrumentRules, capitalDemoOpenPosition, capitalDemoUpdatePosition, capitalDemoReconcile } from "./capital-demo.js";
+import { virtualPartialUpdate, virtualSettledPnl } from "./partial-profit.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -312,11 +313,18 @@ async function updateOpenTrades(env, bid, ask) {
     const buy = t.side === "BUY";
     const hit = buy ? price <= currentStop : price >= currentStop;
     if (!isDemo && hit) {
-      const pnl = buy ? currentStop - entry : entry - currentStop;
+      const pnl = virtualSettledPnl(t, currentStop);
       await patchTrade(env, t.trade_key, {
         exit: currentStop, pnl, status: "CLOSED",
-        result: t.trailing_active ? "TRAILING_STOP" : "SL"
+        result: t.partial_exit_price != null ? "HALF_TRAILING_STOP" : t.trailing_active ? "TRAILING_STOP" : "SL"
       });
+      continue;
+    }
+    // New paper-only management activates when the additive journal column exists.
+    // Until the Supabase migration runs, existing trading behaviour is preserved.
+    if (!isDemo && Object.hasOwn(t, "partial_exit_price")) {
+      const update = virtualPartialUpdate(t, price, risk);
+      if (update) await patchTrade(env, t.trade_key, update);
       continue;
     }
     // No TP exit: trail once the executable closing quote is in profit.

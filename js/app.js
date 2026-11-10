@@ -68,7 +68,7 @@ async function loadAiJournal(){
   const rows=[];
   for(let offset=0;;offset+=1000){
    const {data,error}=await supabase.from("trades")
-    .select("trade_key,trade_time,side,entry,sl,tp,exit,pnl,status,result")
+    .select("*")
     .like("trade_key","ai:%").order("trade_time",{ascending:false})
     .range(offset,offset+999);
    if(error)throw error;
@@ -80,7 +80,9 @@ async function loadAiJournal(){
   const losses=closed.filter(t=>Number(t.pnl)<0||t.result==="SL").length;
   const decided=wins+losses;
   const open=rows.filter(t=>t.status==="OPEN").length;
-  const pnl=closed.reduce((sum,t)=>sum+(Number.isFinite(Number(t.pnl))?Number(t.pnl):0),0);
+  const partialOpen=rows.filter(t=>t.status==="OPEN"&&t.partial_exit_price!=null);
+  const pnl=closed.reduce((sum,t)=>sum+(Number.isFinite(Number(t.pnl))?Number(t.pnl):0),0)
+   +partialOpen.reduce((sum,t)=>sum+(Number(t.pnl)||0),0);
   $("aiTradeTotal").textContent=String(rows.length);
   $("aiTradeOpen").textContent=String(open);
   $("aiTradeWins").textContent=String(wins);
@@ -90,12 +92,12 @@ async function loadAiJournal(){
   $("aiPnl").className=pnl>0?"green":pnl<0?"red":"";
   $("aiJournalList").innerHTML=rows.length?'<div class="ai-trade-list">'+rows.slice(0,100).map(t=>{
    const side=String(t.side||"WAIT"),isOpen=t.status==="OPEN",profit=Number(t.pnl)>0||t.result==="TP",loss=Number(t.pnl)<0||t.result==="SL";
-   const result=isOpen?"ОТКРЫТА":profit?"ПРИБЫЛЬ":loss?"УБЫТОК":"ЗАКРЫТА";
+   const result=isOpen?(t.partial_exit_price!=null?"50% ЗАКРЫТО":"ОТКРЫТА"):profit?"ПРИБЫЛЬ":loss?"УБЫТОК":"ЗАКРЫТА";
    const pnlText=t.pnl==null?"—":(Number(t.pnl)>=0?"+":"")+fmt(t.pnl);
    const time=Number(t.trade_time)?new Date(Number(t.trade_time)).toLocaleString("ru-RU"):"—";
-   return '<div class="ai-trade-row"><div class="ai-trade-top"><b class="'+(side==="BUY"?"green":"red")+'">'+side+'</b><span class="'+(isOpen?"yellow":profit?"green":loss?"red":"muted")+'">'+result+'</span><time>'+time+'</time></div><div class="ai-trade-values"><span>Вход <b>'+fmt(t.entry)+'</b></span><span>Выход <b>'+fmt(t.exit)+'</b></span><span>PnL <b class="'+(Number(t.pnl)>0?"green":Number(t.pnl)<0?"red":"")+'">'+pnlText+'</b></span></div></div>';
+   return '<div class="ai-trade-row"><div class="ai-trade-top"><b class="'+(side==="BUY"?"green":"red")+'">'+side+'</b><span class="'+(isOpen?"yellow":profit?"green":loss?"red":"muted")+'">'+result+'</span><time>'+time+'</time></div><div class="ai-trade-values"><span>Вход <b>'+fmt(t.entry)+'</b></span>'+(t.partial_exit_price!=null?'<span>50% <b>'+fmt(t.partial_exit_price)+'</b></span>':'')+'<span>Выход <b>'+fmt(t.exit)+'</b></span><span>PnL <b class="'+(Number(t.pnl)>0?"green":Number(t.pnl)<0?"red":"")+'">'+pnlText+'</b></span></div></div>';
   }).join("")+'</div>':'<p class="notice">У AI пока нет виртуальных сделок. Когда появится BUY или SELL, сделки отобразятся здесь.</p>';
-  $("aiJournalNote").textContent="Облачный журнал AI · показаны последние "+Math.min(rows.length,100)+" из "+rows.length+" сделок. PnL учитывает только закрытые сделки.";
+  $("aiJournalNote").textContent="Облачный журнал AI · показаны последние "+Math.min(rows.length,100)+" из "+rows.length+" сделок. PnL включает закрытые сделки и прибыль от уже закрытых 50%.";
  }catch(error){
   $("aiJournalNote").textContent="Не удалось загрузить журнал AI: "+error.message;
  }finally{aiJournalLoading=false}
