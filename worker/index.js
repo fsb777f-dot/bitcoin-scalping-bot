@@ -389,7 +389,7 @@ async function openDemoTradeOnce(env, trade, executionMode, size) {
   return { duplicate: false, dealId: order.dealId };
 }
 async function getPreviousState(env) {
-  const rows = await db(env, "bot_state?id=eq.1&select=ai_side,side");
+  const rows = await db(env, "bot_state?id=eq.1&select=ai_side,side,candle_time");
   return rows?.[0] || {};
 }
 async function getStrategyPerformance(env) {
@@ -418,14 +418,14 @@ function aiDecision(results, enabled, performance) {
     voters.push({ name: names[i], signal, weight });
   });
   const totalWeight = buyWeight + sellWeight;
-  const side = buyCount + sellCount < 2 ? "WAIT"
-    : buyWeight > sellWeight && buyWeight / totalWeight >= 0.62 ? "BUY"
-    : sellWeight > buyWeight && sellWeight / totalWeight >= 0.62 ? "SELL" : "WAIT";
+  const side = buyCount + sellCount < 3 ? "WAIT"
+    : buyWeight > sellWeight && buyWeight / totalWeight >= 0.70 ? "BUY"
+    : sellWeight > buyWeight && sellWeight / totalWeight >= 0.70 ? "SELL" : "WAIT";
   const selected = voters.filter(v => v.signal === side).map(v => v.name);
   const confidence = totalWeight ? Math.round(Math.max(buyWeight, sellWeight) / totalWeight * 100) : 0;
   const excluded = performance.filter(p => p.excluded).map(p => p.name);
   const reason = side === "WAIT"
-    ? (buyCount + sellCount < 2 ? "Недостаточно подтверждений: нужно минимум две стратегии." : "Голоса стратегий недостаточно согласованы.")
+    ? (buyCount + sellCount < 2 ? "Недостаточно подтверждений: нужно минимум три стратегии." : "Голоса стратегий недостаточно согласованы.")
     : "AI выбрал " + selected.length + " стратегий; доля взвешенных голосов " + confidence + "%.";
   return { side, count: selected.length, confidence, buy_weight: Number(buyWeight.toFixed(2)), sell_weight: Number(sellWeight.toFixed(2)), selected, excluded, reason, performance };
 }
@@ -472,7 +472,19 @@ async function runScan(env) {
   const candle = candles[candles.length - 1];
   // Match the earlier paper-trading behavior: AI may enter again on each new candle.
   const aiSignalChanged = (ai?.side === "BUY" || ai?.side === "SELL") && candle.time !== previousState.candle_time;
-  const canOpenAiTrade = settings.aiEnabled && aiSignalChanged;
+  // A string of recent stopped-out AI trades in the same direction signals
+  // a poor market regime. Pause new entries briefly, without closing or
+  // limiting existing positions or disabling any strategy votes.
+  let aiLossPause = false;
+  if (settings.aiEnabled && aiSignalChanged) {
+    const recentAi = await db(env, "trades?status=eq.CLOSED&trade_key=like.ai%25&select=side,pnl,trade_time&order=trade_time.desc&limit=12");
+    const sameSide = (recentAi || []).filter(t => t.side === ai.side);
+    const lastThree = sameSide.slice(0, 3);
+    aiLossPause = lastThree.length === 3
+      && lastThree.every(t => Number(t.pnl) < 0)
+      && Number(lastThree[0].trade_time) > Date.now() - 10 * 60000;
+  }
+  const canOpenAiTrade = settings.aiEnabled && aiSignalChanged && !aiLossPause;
   const atrSlDistance = context.atr * 1.2;
   // Protective levels use the same ATR distance in every mode and respect live spread.
   const slDistance = Math.max(atrSlDistance, market.spread * 1.05);
@@ -538,7 +550,7 @@ async function runScan(env) {
     entry: normalEntry, sl: normalSl, tp: normalTp, candle_time: candle.time,
     ai_enabled: settings.aiEnabled,
     ai_side: aiSide, ai_count: ai?.count ?? 0, ai_entry: aiEntry, ai_sl: aiSl, ai_tp: aiTp,
-    ai_confidence: ai?.confidence ?? null, ai_reason: ai?.reason ?? (settings.aiEnabled ? "AI ожидает подтверждения." : "AI выключен."),
+    ai_confidence: ai?.confidence ?? null, ai_reason: aiLossPause ? "AI: пауза после трёх убыточных сделок этого направления за последние 10 минут." : (ai?.reason ?? (settings.aiEnabled ? "AI ожидает подтверждения." : "AI выключен.")),
     ai_selected: ai?.selected ?? [], ai_excluded: ai?.excluded ?? [],
     ai_performance: performance, normal_side: normalSide,
     strategy_results: names.map((name, i) => ({
