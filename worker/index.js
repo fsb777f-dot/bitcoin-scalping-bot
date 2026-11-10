@@ -216,7 +216,13 @@ async function coinbasePrice() {
   if (!Number.isFinite(price) || price <= 0) throw new Error("Coinbase returned an invalid BTC/USD price");
   return price;
 }
-async function getMarketData(env, timeframe) {
+async function getMarketData(env, timeframe, executionMode) {
+  // Keep virtual strategy testing on the same exchange-feed family used before
+  // the Capital.com DEMO integration. DEMO execution still uses Capital quotes.
+  if (executionMode === "VIRTUAL") {
+    const market = await getLegacyMarketData(timeframe);
+    return { ...market, bid: market.price, ask: market.price, spread: 0 };
+  }
   return capitalDemoMarketData(env, timeframe);
 }
 
@@ -408,13 +414,13 @@ async function runScan(env) {
   if (!env.SUPABASE_SECRET_KEY) throw new Error("Set SUPABASE_SECRET_KEY in Worker secrets");
   const settings = await getSettings(env);
   const previousState = await getPreviousState(env);
-  const market = await getMarketData(env, settings.timeframe);
+  const market = await getMarketData(env, settings.timeframe, settings.executionMode);
   const higherTimeframe = settings.timeframe === "1m" ? "5m" : "15m";
   const { candles, price, source } = market;
   let higherContext = null;
   if (settings.aiEnabled) {
     try {
-      const higherMarket = await getMarketData(env, higherTimeframe);
+      const higherMarket = await getMarketData(env, higherTimeframe, settings.executionMode);
       if (higherMarket.candles.length >= 60) higherContext = buildContext(higherMarket.candles);
     } catch (error) {
       console.error("AI higher-timeframe confirmation unavailable", error?.message || String(error));
