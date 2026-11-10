@@ -42,7 +42,7 @@ async function getSettings(env) {
     enabled,
     consensusEnabled: s.consensus_enabled !== false,
     requiredMatches: clamp(s.required_matches ?? 3, 1, names.length),
-    riskReward: [1, 1.5, 2, 2.5, 3, 4].includes(Number(s.risk_reward)) ? Number(s.risk_reward) : 2,
+    riskReward: 2.5,
     executionMode: ["MAIN_DEMO", "AI_DEMO"].includes(s.execution_mode) ? s.execution_mode : "VIRTUAL",
     tradeSize: Number(s.trade_size) > 0 ? Number(s.trade_size) : null
   };
@@ -466,15 +466,13 @@ async function runScan(env) {
   }
   const openAiTrades = settings.aiEnabled ? await getOpenAiTrades(env) : [];
   const hasOpenAiTrade = Array.isArray(openAiTrades) && openAiTrades.length > 0;
-  const aiSignalChanged = ai?.side !== "WAIT" && ai?.side !== previousState.ai_side;
-  const canOpenAiTrade = settings.aiEnabled && (ai?.side === "BUY" || ai?.side === "SELL") && !hasOpenAiTrade && aiSignalChanged;
   const candle = candles[candles.length - 1];
-  const atrSlDistance = context.atr * 1.2;
-  // DEMO protective levels must sit beyond the executable side of the live spread.
-  // Keep virtual strategy levels unchanged; widen DEMO-only distance when spread is larger.
-  const slDistance = settings.executionMode === "VIRTUAL"
-    ? atrSlDistance
-    : Math.max(atrSlDistance, market.spread * 1.05);
+  // Open at most one trade per strategy per completed candle, including repeated signals.
+  const aiSignalChanged = (ai?.side === "BUY" || ai?.side === "SELL") && candle.time !== previousState.candle_time;
+  const canOpenAiTrade = settings.aiEnabled && aiSignalChanged;
+  const atrSlDistance = context.atr * 1.5;
+  // Protective levels use the same ATR distance in every mode and respect live spread.
+  const slDistance = Math.max(atrSlDistance, market.spread * 1.05);
 
   // The classic scanner always makes its own decision and records its own virtual trade.
   const normalEntry = normalSide === "BUY" ? market.ask : normalSide === "SELL" ? market.bid : null;
@@ -482,9 +480,8 @@ async function runScan(env) {
   const normalTp = normalSide === "BUY" ? normalEntry + slDistance * settings.riskReward
     : normalSide === "SELL" ? normalEntry - slDistance * settings.riskReward : null;
   let executionError = null;
-  // Enter only when the main scanner changes into a new directional signal.
-  // This prevents a fresh trade on every minute while the same signal persists.
-  const normalSignalChanged = normalSide !== "WAIT" && normalSide !== previousState.side;
+  // Enter on every new candle with a directional signal; trade_key prevents duplicate scans.
+  const normalSignalChanged = (normalSide === "BUY" || normalSide === "SELL") && candle.time !== previousState.candle_time;
   if (normalSignalChanged) {
     const normalTrade = {
       trade_key: "server:" + settings.timeframe + ":" + candle.time + ":" + normalSide,
