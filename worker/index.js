@@ -400,10 +400,9 @@ async function getStrategyPerformance(env) {
     const losses = relevant.filter(t => Number(t.pnl) < 0 || t.result === "SL").length;
     const total = wins + losses;
     const winRate = total ? wins / total : null;
-    const provenWeak = total >= 6 && winRate < 0.35;
     const reliability = total >= 5 ? Math.min(1, total / 10) : 0;
     const weight = total >= 5 ? clamp(1 + ((winRate ?? 0.5) - 0.5) * 1.4 * reliability, 0.45, 1.5) : 1;
-    return { name, trades: total, wins, losses, win_rate: winRate === null ? null : Number((winRate * 100).toFixed(1)), weight: Number(weight.toFixed(2)), excluded: provenWeak };
+    return { name, trades: total, wins, losses, win_rate: winRate === null ? null : Number((winRate * 100).toFixed(1)), weight: Number(weight.toFixed(2)), excluded: false };
   });
 }
 function aiDecision(results, enabled, performance) {
@@ -413,7 +412,6 @@ function aiDecision(results, enabled, performance) {
   results.forEach((signal, i) => {
     if (!enabled[i] || (signal !== "BUY" && signal !== "SELL")) return;
     const p = perf.get(names[i]);
-    if (p?.excluded) return;
     const weight = p?.weight || 1;
     if (signal === "BUY") { buyWeight += weight; buyCount++; }
     else { sellWeight += weight; sellCount++; }
