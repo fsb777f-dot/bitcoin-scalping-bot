@@ -217,12 +217,8 @@ async function coinbasePrice() {
   return price;
 }
 async function getMarketData(env, timeframe, executionMode) {
-  // Keep virtual strategy testing on the same exchange-feed family used before
-  // the Capital.com DEMO integration. DEMO execution still uses Capital quotes.
-  if (executionMode === "VIRTUAL") {
-    const market = await getLegacyMarketData(timeframe);
-    return { ...market, bid: market.price, ask: market.price, spread: 0 };
-  }
+  // All strategies use Capital.com DEMO market data so virtual results match
+  // the broker feed intended for future execution. VIRTUAL never places orders.
   return capitalDemoMarketData(env, timeframe);
 }
 
