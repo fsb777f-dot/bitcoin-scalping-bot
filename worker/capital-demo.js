@@ -83,27 +83,13 @@ function capitalTime(value) {
   return Number.isFinite(date.getTime()) ? Math.floor(date.getTime() / 1000) : null;
 }
 
-export async function capitalDemoMarketData(env, timeframe = "1m") {
-  if (!env.CAPITAL_API_KEY || !env.CAPITAL_IDENTIFIER || !env.CAPITAL_PASSWORD) {
-    throw new Error("Capital.com secrets are incomplete");
-  }
-  const session = await request("/session", { "X-CAP-API-KEY": env.CAPITAL_API_KEY }, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      identifier: env.CAPITAL_IDENTIFIER,
-      password: env.CAPITAL_PASSWORD,
-      encryptedPassword: false
-    })
-  });
-  const cst = session.headers.get("CST");
-  const security = session.headers.get("X-SECURITY-TOKEN");
-  if (!cst || !security) throw new Error("Capital.com Demo session tokens were not returned");
-
-  const auth = { CST: cst, "X-SECURITY-TOKEN": security };
+export async function capitalDemoMarketData(env, timeframe = "1m", sharedAuth = null, sharedMarket = null) {
+  const auth = sharedAuth || await capitalDemoAuth(env);
+  const resolutions = { "1m": "MINUTE", "5m": "MINUTE_5", "15m": "MINUTE_15", "1h": "HOUR", "4h": "HOUR_4" };
+  if (!resolutions[timeframe]) throw new Error("Unsupported Capital.com timeframe");
   const [marketResult, historyResult] = await Promise.all([
-    request("/markets/BTCUSD", auth),
-    request("/prices/BTCUSD?resolution=" + (timeframe === "15m" ? "MINUTE_15" : timeframe === "5m" ? "MINUTE_5" : "MINUTE") + "&max=300", auth)
+    sharedMarket || request("/markets/BTCUSD", auth),
+    request("/prices/BTCUSD?resolution=" + resolutions[timeframe] + "&max=300", auth)
   ]);
   const snapshot = marketResult.data?.snapshot || {};
   const bid = Number(snapshot.bid);
@@ -129,7 +115,7 @@ export async function capitalDemoMarketData(env, timeframe = "1m") {
   }).filter(c => c.time !== null && [c.open, c.high, c.low, c.close].every(Number.isFinite))
     .sort((a, b) => a.time - b.time);
 
-  const candleSeconds = timeframe === "15m" ? 900 : timeframe === "5m" ? 300 : 60;
+  const candleSeconds = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400 }[timeframe];
   if (candles.length && candles[candles.length - 1].time >= Math.floor(Date.now() / (candleSeconds * 1000)) * candleSeconds) candles.pop();
   if (candles.length < 60) throw new Error("Capital.com returned fewer than 60 completed BTCUSD candles");
 
@@ -146,6 +132,16 @@ export async function capitalDemoMarketData(env, timeframe = "1m") {
     updatedAt: snapshot.updateTimeUTC || snapshot.updateTime || new Date().toISOString(),
     candles
   };
+}
+
+// One Capital.com session shared by the isolated paper-test timeframes.
+export async function capitalDemoMarketBundle(env) {
+  const auth = await capitalDemoAuth(env);
+  const market = await request("/markets/BTCUSD", auth);
+  const frames = await Promise.all(["1m", "5m", "15m", "1h", "4h"].map(async timeframe => [
+    timeframe, await capitalDemoMarketData(env, timeframe, auth, market)
+  ]));
+  return { source: "Capital.com Demo", symbol: "BTCUSD", frames: Object.fromEntries(frames) };
 }
 
 

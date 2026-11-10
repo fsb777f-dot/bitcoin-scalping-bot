@@ -10,8 +10,41 @@ const fmt = value => value == null || !Number.isFinite(Number(value)) ? "—" :
 let enabled = { brooks: true, cameron: true, smb: true };
 let busy = false;
 
+function renderSmc(smc) {
+  if (!smc) {
+    $("testSmcCard").innerHTML = '<p class="notice">SMC ожидает первое сканирование тестового Worker.</p>';
+    return;
+  }
+  const signal = smc.signal || {};
+  const side = signal.side || "WAIT";
+  const stats = smc.stats || {};
+  const trades = smc.trades || [];
+  const open = trades.filter(t => t.status === "OPEN").length;
+  const wins = Number(stats.wins) || 0, losses = Number(stats.losses) || 0;
+  const pnl = Number(stats.pnl) || 0;
+  const decided = wins + losses;
+  const zone = signal.zone;
+  $("testSmcCard").innerHTML = '<article class="test-card"><div class="test-card-head"><div><b>Smart Money Concepts · BOS / CHoCH / OB / FVG</b>' +
+    '<small>Тренд 1H · зона 5m · вход 1m · Capital.com Demo · только виртуально</small></div>' +
+    '<b class="test-signal ' + (side === "BUY" ? "green" : side === "SELL" ? "red" : "yellow") + '">' + side + '</b></div>' +
+    '<div class="test-confluence">Тренд 1H: <b>' + (signal.bias || "WAIT") + '</b> · ' + (signal.reason || "Ожидание данных") + '</div>' +
+    '<div class="test-stats"><span>Зона <b>' + (zone?.type || "—") + '</b></span><span>От <b>' + fmt(zone?.low) +
+    '</b></span><span>До <b>' + fmt(zone?.high) + '</b></span><span>Take Profit <b>Нет · трейлинг SL</b></span></div>' +
+    '<div class="test-stats"><span>Всего <b>' + (Number(stats.opened) || 0) + '</b></span><span>Открыто <b>' + open +
+    '</b></span><span>Плюс <b class="green">' + wins + '</b></span><span>Минус <b class="red">' + losses +
+    '</b></span><span>Winrate <b>' + (decided ? (100 * wins / decided).toFixed(1) + "%" : "—") +
+    '</b></span><span>PnL на 1 BTC <b class="' + (pnl > 0 ? "green" : pnl < 0 ? "red" : "") + '">' + fmt(pnl) +
+    '</b></span></div><p class="notice">Спред Capital.com учтён через Bid/Ask; ночное финансирование не учтено.</p></article>';
+  $("testSmcTradeList").innerHTML = trades.length ? trades.slice(0, 40).map(t =>
+    '<div class="test-trade"><b>SMC</b><span class="' + (t.side === "BUY" ? "green" : "red") + '">' + t.side +
+    '</span><span>Вход ' + fmt(t.entry) + '</span><span>SL ' + fmt(t.sl) + '</span><span>TP нет</span>' +
+    '<span>' + (t.status === "OPEN" ? "ОТКРЫТА" : (Number(t.pnl) > 0 ? "ПРИБЫЛЬ" : Number(t.pnl) < 0 ? "УБЫТОК" : "БЕЗУБЫТОК") + " · " + fmt(t.pnl)) +
+    '</span></div>').join("") : '<p class="notice">SMC ищет подтверждённые сигналы. Пока сделок нет.</p>';
+}
+
 function render(data) {
   if (data.settings?.enabled) enabled = { ...enabled, ...data.settings.enabled };
+  renderSmc(data.state?.analysis?.smc);
   const signals = data.state?.signals || {};
   const trades = (data.trades || []).filter(t => t.strategy === "consensus");
   const side = signals.consensus || "WAIT";

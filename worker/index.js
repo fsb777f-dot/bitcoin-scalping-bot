@@ -1,6 +1,6 @@
 import { buildContext } from "../js/indicators.js";
 import { strategies, names } from "../strategies/index.js";
-import { capitalDemoStatus, capitalDemoMarketData, capitalDemoInstrumentRules, capitalDemoOpenPosition, capitalDemoUpdatePosition, capitalDemoReconcile } from "./capital-demo.js";
+import { capitalDemoStatus, capitalDemoMarketData, capitalDemoMarketBundle, capitalDemoInstrumentRules, capitalDemoOpenPosition, capitalDemoUpdatePosition, capitalDemoReconcile } from "./capital-demo.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -568,6 +568,10 @@ export default {
     if (url.pathname === "/api/capital-demo/market" && request.method === "GET") {
       try { return reply(await capitalDemoMarketData(env)); }
       catch (e) { return reply({ connected: false, mode: "DEMO", error: e?.message || "Capital.com Demo market data failed" }, 502); }
+    }
+    if (url.pathname === "/api/capital-demo/market-bundle" && request.method === "GET") {
+      try { return reply(await capitalDemoMarketBundle(env)); }
+      catch (e) { return reply({ error: e?.message || "Capital.com Demo multi-timeframe data failed" }, 502); }
     }
     if (url.pathname === "/api/execution-mode" && request.method === "POST") {
       try {
