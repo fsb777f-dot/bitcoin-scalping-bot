@@ -1,5 +1,6 @@
 import { evaluateTestStrategies, testRiskLevels, TEST_STRATEGIES } from "../test-module/strategies.js";
-import { loadMarketAnalysis } from "../test-module/market-analysis.js";
+import { loadMarketAnalysis, loadSmcCapitalMarket } from "../test-module/market-analysis.js";
+import { updateSmcPaper } from "../test-module/smc.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -30,9 +31,18 @@ async function db(env, path, init = {}) {
 }
 
 async function runTestScan(env) {
-  const { candles, price, analysis } = await loadMarketAnalysis();
+  const [market, capitalSmc] = await Promise.all([
+    loadMarketAnalysis(), loadSmcCapitalMarket().catch(error => {
+      console.warn("SMC Capital.com data unavailable:", error?.message || String(error));
+      return { analysis: { source: "UNAVAILABLE" } };
+    })
+  ]);
+  const { candles, price, analysis } = market;
   const candle = candles.at(-1);
-  const rows = await db(env, "test_settings?id=eq.1&select=*");
+  const [rows, existingState] = await Promise.all([
+    db(env, "test_settings?id=eq.1&select=*"),
+    db(env, "test_state?id=eq.1&select=analysis")
+  ]);
   const enabled = rows?.[0]?.enabled || { brooks: true, cameron: true, smb: true };
   const raw = evaluateTestStrategies(candles);
   const signals = Object.fromEntries(TEST_STRATEGIES.map(s => [
@@ -64,6 +74,9 @@ async function runTestScan(env) {
       checks: 4
     }];
   }));
+
+  // SMC keeps its own virtual journal in test_state.analysis, independent of the 3-way consensus.
+  analysis.smc = updateSmcPaper(existingState?.[0]?.analysis?.smc, capitalSmc);
 
   const open = await db(env, "test_trades?status=eq.OPEN&select=*");
   for (const trade of open || []) {
@@ -100,7 +113,7 @@ async function runTestScan(env) {
 
   await db(env, "test_state?on_conflict=id", {
     method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ id: 1, timeframe: "1m", price, signals: { ...signals, consensus: consensusSide, confirmations,
+    body: JSON.stringify({ id: 1, timeframe: "1m", price, signals: { ...signals, smc: analysis.smc.signal.side, consensus: consensusSide, confirmations,
         consensus_entry: consensusLevels ? price : null,
         consensus_sl: consensusLevels?.sl ?? null,
         consensus_tp: consensusLevels?.tp ?? null

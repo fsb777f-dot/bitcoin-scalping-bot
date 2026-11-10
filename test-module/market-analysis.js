@@ -8,6 +8,34 @@ const TIMEFRAMES = [
   { id: "4h", kraken: 240, coinbase: 21600, bybit: "240" }
 ];
 
+async function fromCapital() {
+  // Read-only quotes through the main worker; no broker credentials in the test worker.
+  const url = "https://bitcoin-scalping-bot.fsb777f.workers.dev/api/capital-demo/market-bundle";
+  let response;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    response = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(20000) });
+    if (response.ok || ![429, 502, 503].includes(response.status) || attempt) break;
+    await new Promise(resolve => setTimeout(resolve, 1300)); // Capital.com limits new sessions to 1/s.
+  }
+  if (!response.ok) throw new Error("Capital.com bundle HTTP " + response.status);
+  const data = await response.json();
+  const frames = data?.frames;
+  if (!frames || TIMEFRAMES.some(tf => !Array.isArray(frames[tf.id]?.candles) || frames[tf.id].candles.length < 60)) {
+    throw new Error("Capital.com returned incomplete test timeframes");
+  }
+  return { frames: Object.fromEntries(TIMEFRAMES.map(tf => [tf.id, frames[tf.id]])),
+    price: frames["1m"].price, bid: frames["1m"].bid, ask: frames["1m"].ask, spread: frames["1m"].spread };
+}
+
+export async function loadSmcCapitalMarket() {
+  const capital = await fromCapital();
+  return {
+    price: capital.price, bid: capital.bid, ask: capital.ask, spread: capital.spread,
+    frames: Object.fromEntries(TIMEFRAMES.map(tf => [tf.id, capital.frames[tf.id].candles])),
+    analysis: { source: "Capital.com Demo" }
+  };
+}
+
 async function json(url) {
   const response = await fetch(url, {
     headers: { Accept: "application/json" },
@@ -149,7 +177,6 @@ export async function loadMarketAnalysis() {
     { name: "Bybit", load: fromBybit }
   ];
   const failures = [];
-
   for (const provider of providers) {
     try {
       const responses = await Promise.all(TIMEFRAMES.map(async tf => {
