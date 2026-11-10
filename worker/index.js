@@ -303,7 +303,8 @@ async function updateOpenTrades(env, bid, ask) {
   const open = await db(env, "trades?status=eq.OPEN&select=*");
   const spread = Math.max(0, Number(ask) - Number(bid));
   for (const t of open || []) {
-    const isDemo = t.execution_mode === "MAIN_DEMO" || t.execution_mode === "AI_DEMO";
+    if (t.execution_mode === "AI_DEMO") continue;
+    const isDemo = t.execution_mode === "MAIN_DEMO";
     const price = t.side === "BUY" ? bid : ask;
     const entry = Number(t.entry);
     const initialSl = Number(t.sl);
@@ -377,7 +378,8 @@ async function openDemoTradeOnce(env, trade, executionMode, size) {
   const existing = await db(env, "trades?trade_key=eq." + encodeURIComponent(trade.trade_key) + "&select=trade_key&limit=1");
   if (Array.isArray(existing) && existing.length) return { duplicate: true };
   const order = await capitalDemoOpenPosition(env, {
-    direction: trade.side, size, stopLevel: trade.sl, profitLevel: trade.tp
+    direction: trade.side, size, stopLevel: trade.sl, profitLevel: trade.tp,
+    trailingEnabled: executionMode === "MAIN_DEMO"
   });
   await insertTradeOnce(env, {
     ...trade, execution_mode: executionMode,
