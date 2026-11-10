@@ -280,29 +280,22 @@ export async function capitalDemoOpenPosition(env, { direction, size, stopLevel,
   if (requestedSize < min || requestedSize > max || Math.abs(steps - Math.round(steps)) > 1e-8) {
     throw new Error("BTC size " + requestedSize + " is invalid. Allowed: " + min + " to " + max + " in steps of " + step);
   }
-  const sl = Number(stopLevel), tp = Number(profitLevel);
-  if (!Number.isFinite(sl) || !Number.isFinite(tp) || sl <= 0 || tp <= 0) {
-    throw new Error("Valid Stop Loss and Take Profit are required for DEMO orders");
+  const sl = Number(stopLevel);
+  if (!Number.isFinite(sl) || sl <= 0) {
+    throw new Error("Valid Stop Loss is required for DEMO orders");
   }
-  const levelsValid = direction === "BUY" ? sl < bid && tp > ask : sl > ask && tp < bid;
+  const levelsValid = direction === "BUY" ? sl < bid : sl > ask;
   if (!levelsValid) {
-    const quote = "Capital.com BTCUSD bid=" + bid + ", ask=" + ask;
-    const levels = "signal SL=" + sl + ", TP=" + tp;
-    throw new Error(
-      direction + " DEMO signal skipped: price moved beyond the original protection levels. " +
-      quote + "; " + levels + ". No order was sent; original SL/TP were not changed."
-    );
+    throw new Error(direction + " DEMO signal skipped: Stop Loss is on the wrong side of current BTCUSD bid/ask. No order was sent.");
   }
-
-  // The main scanner uses TP as a trailing activation level, so it leaves
-  // broker TP unset. Other execution modes keep their existing broker TP.
+  // No broker Take Profit: positions are managed exclusively by a protective
+  // stop that the scanner moves in the profitable direction.
   const orderBody = {
     epic: "BTCUSD",
     direction,
     size: requestedSize,
     stopLevel: sl
   };
-  if (!trailingEnabled) orderBody.profitLevel = tp;
   const opened = await request("/positions", auth, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
