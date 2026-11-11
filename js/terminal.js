@@ -396,6 +396,11 @@ export function initTradingTerminal(supabase) {
     active = true;
     document.body.classList.add("tt-mobile-open");
     showPane("overview");
+    // An iPhone may enter the terminal after scrolling a long journal.
+    // Reset only the page position, never any trading state.
+    if (typeof window !== "undefined" && window.matchMedia?.("(max-width:610px)")?.matches) {
+      window.scrollTo(0, 0);
+    }
     refresh(true);
     timer = setInterval(() => { if (!document.hidden) refresh(); }, 30000);
   };
