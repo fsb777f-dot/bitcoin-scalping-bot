@@ -175,16 +175,16 @@ export function initTradingTerminal(supabase) {
     const results = [];
     const add = (name, side, value) => results.push({ name, side: side || "WAIT", value });
     add("₿ Основной", state?.side, state ? number(state.count, 0) + "/" + number(state.required_matches, 0) + " совп." : "—");
-    add("₿ AI", state?.ai_enabled ? state.ai_side : (state ? "OFF" : "WAIT"), state ? uiText("aiPnl") + " USD/BTC" : "—");
-    add("✦ Gold AI", gold?.state?.side, gold?.stats ? amount(gold.stats.pnl) + " USD/oz" : "—");
-    add("ЧПТ · BTC", btcGpt?.state?.side, btcGpt?.stats ? amount(btcGpt.stats.pnl) + " USD/BTC" : "—");
-    add("ЧПТ · Gold", goldGpt?.state?.side, goldGpt?.stats ? amount(goldGpt.stats.pnl) + " USD/oz" : "—");
+    add("₿ AI", state?.ai_enabled ? state.ai_side : (state ? "OFF" : "WAIT"), state ? uiText("aiPnl") : "—");
+    add("✦ Gold AI", gold?.state?.side, gold?.stats ? amount(gold.stats.pnl) : "—");
+    add("ЧПТ · BTC", btcGpt?.state?.side, btcGpt?.stats ? amount(btcGpt.stats.pnl) : "—");
+    add("ЧПТ · Gold", goldGpt?.state?.side, goldGpt?.stats ? amount(goldGpt.stats.pnl) : "—");
     const testTrades = (test?.trades || []).filter(t => t.strategy === "consensus" && t.status === "CLOSED");
     const testPnl = testTrades.reduce((sum, trade) => sum + (validNumber(trade.pnl) ? Number(trade.pnl) : 0), 0);
-    add("Тест · 3 стратегии", test?.state?.signals?.consensus,
-      test?.state ? amount(testPnl) + " USD/BTC · выборка" : "—");
+    add("Тест · выборка", test?.state?.signals?.consensus,
+      test?.state ? amount(testPnl) : "—");
     const smc = test?.state?.analysis?.smc;
-    add("Тест · SMC", smc?.signal?.side, smc?.stats ? amount(smc.stats.pnl) + " USD/BTC" : "—");
+    add("Тест · SMC", smc?.signal?.side, smc?.stats ? amount(smc.stats.pnl) : "—");
     $("ttQuick").innerHTML = results.map(item =>
       '<button type="button" class="tt-quick-card" data-tt-go="systems" title="Подробная статистика">'
       + '<span class="tt-quick-main"><span class="tt-quick-name">' + escape(item.name)
