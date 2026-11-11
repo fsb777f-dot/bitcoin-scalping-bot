@@ -175,6 +175,43 @@ export async function capitalDemoAuth(env) {
   return { CST: cst, "X-SECURITY-TOKEN": security };
 }
 
+// Temporary read-only probe to diagnose missing broker closures. No account
+// credentials, deal IDs, transaction references, or money values are returned.
+export async function capitalDemoHistoryProbe(env, trades) {
+  const auth = await capitalDemoAuth(env);
+  const [positionsResult, recentResult, transactionResult] = await Promise.all([
+    request("/positions", auth),
+    request("/history/activity?detailed=true&lastPeriod=86400", auth),
+    request("/history/transactions?lastPeriod=86400&type=TRADE", auth)
+  ]);
+  const positions = positionsResult.data?.positions || [];
+  const recent = recentResult.data?.activities || [];
+  const transactions = transactionResult.data?.transactions || [];
+  const result = [];
+  for (const trade of (trades || []).slice(0, 5)) {
+    const id = trade.capital_deal_id;
+    const filteredResult = await request("/history/activity?detailed=true&lastPeriod=86400&dealId=" + encodeURIComponent(id), auth);
+    const filtered = filteredResult.data?.activities || [];
+    const event = item => ({
+      sameId: item.dealId === id, type: item.type, status: item.status, source: item.source,
+      epic: item.epic, date: item.dateUTC || item.date,
+      detailKeys: Object.keys(item.details || {}),
+      detailHasId: JSON.stringify(item.details || {}).includes(id)
+    });
+    result.push({
+      key: trade.trade_key,
+      inPositions: positions.some(p => p.position?.dealId === id),
+      filtered: filtered.slice(0, 8).map(event),
+      recentMatching: recent.filter(a => a.dealId === id || JSON.stringify(a.details || {}).includes(id)).slice(0, 8).map(event),
+      recentBtcKinds: recent.filter(a => a.epic === "BTCUSD").slice(0, 12).map(event),
+      transactions: transactions.filter(t => t.instrumentName === "BTCUSD" || t.instrumentName === "Bitcoin/USD").slice(0, 10)
+        .map(t => ({ type: t.transactionType, status: t.status, note: t.note, date: t.dateUtc || t.date,
+          matchesId: t.dealId === id || t.reference === id, matchesReference: t.reference === trade.capital_deal_reference }))
+    });
+  }
+  return { positionCount: positions.length, recentCount: recent.length, transactionCount: transactions.length, result };
+}
+
 export async function capitalDemoReconcile(env, trades) {
   const auth = await capitalDemoAuth(env);
   const result = await request("/positions", auth);

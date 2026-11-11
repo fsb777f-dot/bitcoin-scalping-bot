@@ -2,7 +2,7 @@ import { buildContext } from "../js/indicators.js";
 import { runGptScan, gptStatus } from "./gpt-strategy.js";
 import { gptStrategyPage } from "./gpt-strategy-page.js";
 import { strategies, names } from "../strategies/index.js";
-import { capitalDemoStatus, capitalDemoMarketData, capitalDemoMarketBundle, capitalDemoInstrumentRules, capitalDemoOpenPosition, capitalDemoUpdatePosition, capitalDemoReconcile, capitalDemoAuth } from "./capital-demo.js";
+import { capitalDemoStatus, capitalDemoMarketData, capitalDemoMarketBundle, capitalDemoInstrumentRules, capitalDemoOpenPosition, capitalDemoUpdatePosition, capitalDemoReconcile, capitalDemoAuth, capitalDemoHistoryProbe } from "./capital-demo.js";
 import { virtualPartialUpdate, virtualTargetTrailUpdate, virtualSettledPnl, virtualStopFill, spreadSafeStopDistance } from "./partial-profit.js";
 
 const cors = {
@@ -610,6 +610,12 @@ export default {
     if (url.pathname === "/api/capital-demo/status" && request.method === "GET") {
       try { return reply(await capitalDemoStatus(env)); }
       catch (e) { return reply({ connected: false, mode: "DEMO", error: e?.message || "Capital.com Demo connection failed" }, 502); }
+    }
+    if (url.pathname === "/api/capital-demo/history-probe" && request.method === "GET") {
+      try {
+        const trades = await db(env, "trades?status=eq.OPEN&execution_mode=in.(MAIN_DEMO,AI_DEMO)&capital_deal_id=not.is.null&select=trade_key,capital_deal_id,capital_deal_reference&order=trade_time.desc&limit=5");
+        return reply(await capitalDemoHistoryProbe(env, trades));
+      } catch (e) { return reply({ error: e?.message || "History probe failed" }, 502); }
     }
     if (url.pathname === "/api/capital-demo/rules" && request.method === "GET") {
       try { return reply(await capitalDemoInstrumentRules(env)); }
