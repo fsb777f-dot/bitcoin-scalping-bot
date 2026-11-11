@@ -1,0 +1,80 @@
+
+/* TERMINAL: read-only unified monitoring, completely isolated from trading styles. */
+.terminal-screen{--tt-ink:#e6f1ff;--tt-soft:#91a8c6;--tt-border:#233754;--tt-inner:#0b1424;--tt-glow:#65c3ff;overflow:hidden;color:var(--tt-ink);padding:clamp(12px,3vw,24px)}
+.terminal-screen .tt-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:15px}
+.terminal-screen .tt-eyebrow{font-size:10px;letter-spacing:.17em;text-transform:uppercase;color:#65d3e7;font-weight:800}
+.terminal-screen .tt-title{font-size:clamp(22px,4vw,30px);font-weight:850;line-height:1.1;letter-spacing:-.04em;margin:6px 0}
+.terminal-screen .tt-sub{font-size:12px;color:var(--tt-soft);line-height:1.6;margin:0;max-width:670px}
+.terminal-screen .tt-actions{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+.terminal-screen .tt-mode{background:#0c2931;border:1px solid #236473;color:#95ede6;border-radius:100px;font-size:11px;font-weight:800;padding:8px 11px;white-space:nowrap}
+.terminal-screen .tt-refresh{border:1px solid #376182;border-radius:10px;background:#112945;color:#e6f3ff;padding:10px 12px;font-size:12px;cursor:pointer}
+.terminal-screen .tt-refresh:disabled{opacity:.5;cursor:wait}
+.terminal-screen .tt-strip{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:14px 0 20px}
+.terminal-screen .tt-source{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--tt-border);background:#0b1526;border-radius:100px;padding:7px 10px;color:var(--tt-soft);font-size:10px}
+.terminal-screen .tt-dot{width:6px;height:6px;background:#60718a;box-shadow:0 0 8px #60718a;border-radius:50%}
+.terminal-screen .tt-source.tt-up .tt-dot{background:#46d9a3;box-shadow:0 0 8px #46d9a3}
+.terminal-screen .tt-source.tt-error .tt-dot{background:#f58a87;box-shadow:0 0 8px #f58a87}
+.terminal-screen .tt-section-heading{font-size:13px;letter-spacing:.015em;color:#dce9fc;display:flex;align-items:center;justify-content:space-between;gap:10px;margin:18px 0 10px;font-weight:750}
+.terminal-screen .tt-section-heading small{color:var(--tt-soft);font-weight:400;font-size:10px}
+.terminal-screen .tt-card{background:linear-gradient(155deg,#121f34,#0b1425);border:1px solid var(--tt-border);border-radius:16px;min-width:0;padding:15px;position:relative}
+.terminal-screen .tt-markets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.terminal-screen .tt-market-head{display:flex;justify-content:space-between;align-items:flex-start;gap:6px}
+.terminal-screen .tt-market-name{font-size:11px;color:var(--tt-soft);font-weight:650;letter-spacing:.08em}
+.terminal-screen .tt-price{font-size:clamp(23px,3.8vw,35px);letter-spacing:-.05em;font-weight:850;font-variant-numeric:tabular-nums;margin-top:7px;line-height:1.15}
+.terminal-screen .tt-pill{font-size:10px;font-weight:700;color:#93c9f0;background:#19314b;border:1px solid #355373;border-radius:7px;padding:5px 7px;white-space:nowrap}
+.terminal-screen .tt-chart{height:124px;margin:13px -3px 6px;position:relative;overflow:hidden}
+.terminal-screen .tt-chart svg{width:100%;height:100%;display:block;overflow:visible}
+.terminal-screen .tt-chart-empty{font-size:11px;color:var(--tt-soft);padding:36px 0;text-align:center}
+.terminal-screen .tt-chart-note{font-size:10px;color:var(--tt-soft);display:flex;align-items:center;justify-content:space-between;gap:6px}
+.terminal-screen .tt-ai-layout{display:grid;grid-template-columns:minmax(210px,.83fr) 1.3fr;gap:12px}
+.terminal-screen .tt-core{display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:230px;background:radial-gradient(ellipse at 50% 35%,#143f60,#101b31 48%,#0b1527 85%);overflow:hidden}
+.terminal-screen .tt-orb{width:122px;height:122px;border-radius:50%;display:grid;place-items:center;position:relative;background:radial-gradient(circle at 38% 30%,#38b8fa6b,#073157 58%,#050d1b 76%);box-shadow:0 0 54px #2785e94a,inset 0 0 35px #54b5e566}
+.terminal-screen .tt-orb::before,.terminal-screen .tt-orb::after{content:"";position:absolute;inset:-16px;border:1px solid #55c9e599;border-radius:50%;transform:rotate(-22deg) scaleY(.55);animation:ttOrbit 10s linear infinite}
+.terminal-screen .tt-orb::after{inset:-26px;border-color:#37ad9d77;transform:rotate(35deg) scaleY(.7);animation-duration:14s;animation-direction:reverse}
+.terminal-screen .tt-orb-center{position:relative;z-index:2;font-size:15px;font-weight:900;letter-spacing:.12em;color:#d9faff;text-shadow:0 0 20px #42c8ff}
+@keyframes ttOrbit{0%{transform:rotate(0) scaleY(.58)}100%{transform:rotate(360deg) scaleY(.58)}}
+.terminal-screen .tt-core-caption{font-size:11px;font-weight:700;margin-top:24px;color:#c7eaff}
+.terminal-screen .tt-core-detail{font-size:10px;color:var(--tt-soft);text-align:center;margin-top:6px;max-width:240px;line-height:1.5}
+.terminal-screen .tt-signals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.terminal-screen .tt-signal-box{border:1px solid #253a55;background:#0b1525;border-radius:11px;padding:12px;min-width:0}
+.terminal-screen .tt-signal-label{font-size:11px;color:var(--tt-soft)}
+.terminal-screen .tt-direction{display:block;font-weight:850;font-size:22px;margin:7px 0;font-variant-numeric:tabular-nums}
+.terminal-screen .tt-mini{color:var(--tt-soft);font-size:11px;line-height:1.55;overflow-wrap:anywhere}
+.terminal-screen .tt-buy{color:#53e6ac}.terminal-screen .tt-sell{color:#ff7f99}.terminal-screen .tt-wait{color:#f3c76e}.terminal-screen .tt-off{color:#8da1ba}
+.terminal-screen .tt-systems{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.terminal-screen .tt-system-title{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.terminal-screen .tt-system-title b{font-size:12px}
+.terminal-screen .tt-system-signal{font-weight:850;font-size:14px}
+.terminal-screen .tt-system-sub{font-size:10px;color:var(--tt-soft);margin:4px 0 13px;line-height:1.45}
+.terminal-screen .tt-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.terminal-screen .tt-metric{border-top:1px solid #243953;padding-top:8px;min-width:0}
+.terminal-screen .tt-metric small{font-size:10px;color:var(--tt-soft);display:block}
+.terminal-screen .tt-metric strong{font-size:14px;display:block;font-variant-numeric:tabular-nums;margin-top:3px;overflow-wrap:anywhere}
+.terminal-screen .tt-system-footer{color:var(--tt-soft);font-size:10px;margin-top:12px;line-height:1.5}
+.terminal-screen .tt-heatmap{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.terminal-screen .tt-heat{border:1px solid #2c3a51;background:#0d192a;border-radius:8px;padding:9px 7px;min-height:62px;display:flex;flex-direction:column;justify-content:space-between;min-width:0}
+.terminal-screen .tt-heat.tt-heat-buy{background:#0d2e2c;border-color:#21775d}
+.terminal-screen .tt-heat.tt-heat-sell{background:#351c30;border-color:#9e4366}
+.terminal-screen .tt-heat.tt-heat-disabled{opacity:.42}
+.terminal-screen .tt-heat-name{font-size:10px;line-height:1.2;font-weight:650;overflow-wrap:anywhere}
+.terminal-screen .tt-heat-side{font-size:10px;font-weight:800;margin-top:8px}
+.terminal-screen .tt-list{display:grid;gap:6px}
+.terminal-screen .tt-trade{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid #23344e}
+.terminal-screen .tt-trade:last-child{border:0}
+.terminal-screen .tt-trade-name{font-size:11px;font-weight:750}
+.terminal-screen .tt-trade-meta{font-size:10px;color:var(--tt-soft);margin-top:3px}
+.terminal-screen .tt-trade-right{text-align:right;font-size:12px;font-weight:800;white-space:nowrap}
+.terminal-screen .tt-footer{color:var(--tt-soft);line-height:1.5;font-size:10px;margin:16px 0 0}
+.terminal-screen .tt-error-text{color:#ff98ab;font-size:11px;line-height:1.5}
+@media(max-width:960px){.terminal-screen .tt-systems{grid-template-columns:repeat(2,minmax(0,1fr))}.terminal-screen .tt-heatmap{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:610px){
+ .terminal-screen .tt-markets{grid-template-columns:1fr}
+ .terminal-screen .tt-ai-layout{grid-template-columns:1fr}
+ .terminal-screen .tt-core{min-height:205px}
+ .terminal-screen .tt-systems{grid-template-columns:1fr}
+ .terminal-screen .tt-heatmap{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .terminal-screen .tt-card{padding:12px}
+ .terminal-screen .tt-chart{height:120px}
+ .terminal-screen .tt-price{font-size:30px}
+}
+@media(prefers-reduced-motion:reduce){.terminal-screen .tt-orb::before,.terminal-screen .tt-orb::after{animation:none}}
