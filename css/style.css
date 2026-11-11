@@ -31,6 +31,7 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 }
 
 /* Four compact journal summary cards */
+.virtual-journal-switch{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:0 0 13px}.virtual-journal-switch button{font-size:13px;font-weight:700;padding:11px 7px;cursor:pointer}.virtual-journal-switch button.active{background:#20314d;border-color:#5476a8;color:#fff}.virtual-journal-switch button:focus-visible{outline:2px solid #5476a8;outline-offset:2px}
 .journal-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:0 0 13px}.journal-stat{min-width:0;background:#0c1320;border:1px solid var(--line);border-radius:11px;padding:12px}.journal-stat small{display:block;color:var(--muted);font-size:10px}.journal-stat b{display:block;margin-top:7px;font-size:21px;font-weight:800;font-variant-numeric:tabular-nums}@media(max-width:600px){.journal-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-bottom:11px}.journal-stat{padding:10px}.journal-stat small{font-size:10px}.journal-stat b{font-size:19px;margin-top:5px}}
 
 /* Strategy performance in the journal */

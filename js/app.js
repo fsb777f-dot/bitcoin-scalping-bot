@@ -316,8 +316,19 @@ $("clearAiJournal").addEventListener("click",async()=>{
   alert("Ошибка очистки журнала AI: "+error.message);
  }finally{button.disabled=false;button.textContent="Очистить журнал AI"}
 });
+const selectedVirtualGroup=()=>document.querySelector("[data-virtual-journal].active")?.dataset.virtualJournal||"MAIN";
+document.querySelectorAll("[data-virtual-journal]").forEach(button=>button.addEventListener("click",()=>{
+ document.querySelectorAll("[data-virtual-journal]").forEach(tab=>{
+  const active=tab===button;tab.classList.toggle("active",active);tab.setAttribute("aria-pressed",String(active));
+ });
+ $("clearJournal").textContent=button.dataset.virtualJournal==="AI"?"Очистить AI":"Очистить основной";
+ journal.render();
+}));
 $("clearJournal").addEventListener("click",async()=>{
- if(confirm("Удалить только виртуальные сделки? История Capital.com DEMO останется без изменений."))try{await journal.clear()}catch(e){alert("Ошибка: "+e.message)}
+ const group=selectedVirtualGroup(),name=group==="AI"?"AI":"основного бота";
+ if(!confirm("Удалить все виртуальные сделки "+name+", включая открытые? Второй бот и Capital.com DEMO не затронутся."))return;
+ try{await journal.clear(group);if(group==="AI")await loadAiJournal()}
+ catch(e){alert("Ошибка: "+e.message)}
 });
 $("refreshDemoJournal").addEventListener("click",loadDemoJournal);
 $("clearDemoJournal").addEventListener("click",async()=>{
