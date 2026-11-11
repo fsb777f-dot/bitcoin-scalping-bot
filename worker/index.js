@@ -1,6 +1,8 @@
 import { buildContext } from "../js/indicators.js";
+import { runGptScan, gptStatus } from "./gpt-strategy.js";
+import { gptStrategyPage } from "./gpt-strategy-page.js";
 import { strategies, names } from "../strategies/index.js";
-import { capitalDemoStatus, capitalDemoMarketData, capitalDemoMarketBundle, capitalDemoInstrumentRules, capitalDemoOpenPosition, capitalDemoUpdatePosition, capitalDemoReconcile } from "./capital-demo.js";
+import { capitalDemoStatus, capitalDemoMarketData, capitalDemoMarketBundle, capitalDemoInstrumentRules, capitalDemoOpenPosition, capitalDemoUpdatePosition, capitalDemoReconcile, capitalDemoAuth } from "./capital-demo.js";
 import { virtualPartialUpdate, virtualTargetTrailUpdate, virtualSettledPnl, virtualStopFill, spreadSafeStopDistance } from "./partial-profit.js";
 
 const cors = {
@@ -419,7 +421,8 @@ async function runScan(env) {
   if (!env.SUPABASE_SECRET_KEY) throw new Error("Set SUPABASE_SECRET_KEY in Worker secrets");
   const settings = await getSettings(env);
   const previousState = await getPreviousState(env);
-  const market = await getMarketData(env, settings.timeframe, settings.executionMode);
+  const sharedAuth = await capitalDemoAuth(env);
+  const market = await capitalDemoMarketData(env, settings.timeframe, sharedAuth);
   const { candles, price, source } = market;
   if (candles.length < 60) throw new Error("Not enough completed candles");
   const context = buildContext(candles);
@@ -547,6 +550,11 @@ async function runScan(env) {
     })),
     market_source: source, bid: market.bid, ask: market.ask, spread: market.spread, scan_ok: true, last_error: executionError
   });
+  // The GPT paper test runs after the classic/AI state is saved and cannot interrupt it.
+  try {
+    const gptMarket = settings.timeframe === "5m" ? market : await capitalDemoMarketData(env, "5m", sharedAuth);
+    await runGptScan(db.bind(null, env), gptMarket, "btc_gpt");
+  } catch (error) { console.error("Bitcoin GPT 5m test failed:", error?.message || String(error)); }
   return { ok: true, price, normalSide, aiSide, activeCount, required, source, aiEnabled: settings.aiEnabled };
 }
 
@@ -574,6 +582,11 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
     if (url.pathname === "/health") return reply({ ok: true, service: "bitcoin-scalping-server", mode: "VIRTUAL_ONLY" });
+    if (url.pathname === "/gpt-strategy") return new Response(gptStrategyPage, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+    if (url.pathname === "/api/gpt-strategy" && request.method === "GET") {
+      try { return reply(await gptStatus(db.bind(null, env), "btc_gpt")); }
+      catch (error) { return reply({ error: error?.message || String(error) }, 503); }
+    }
     if (url.pathname === "/api/capital-demo/status" && request.method === "GET") {
       try { return reply(await capitalDemoStatus(env)); }
       catch (e) { return reply({ connected: false, mode: "DEMO", error: e?.message || "Capital.com Demo connection failed" }, 502); }
