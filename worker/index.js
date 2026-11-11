@@ -14,6 +14,11 @@ const cors = {
 const reply = (data, status = 200) => new Response(JSON.stringify(data), {
   status, headers: { ...cors, "Content-Type": "application/json" }
 });
+export function closedDemoJournalPath(mode) {
+  if (!["ALL", "MAIN_DEMO", "AI_DEMO"].includes(mode)) throw new Error("Invalid DEMO journal filter");
+  return "trades?status=eq.CLOSED&execution_mode="
+    + (mode === "ALL" ? "in.(MAIN_DEMO,AI_DEMO)" : "eq." + mode);
+}
 // Per-isolate fast cache; edge Cache API below also helps when isolates rotate.
 const backtestHistoryCache = new Map();
 const clamp = (n, min, max) => Math.max(min, Math.min(max, Number(n) || min));
@@ -722,6 +727,19 @@ export default {
         return reply({ ok: true, execution_mode: mode, trade_size: Number.isFinite(size) && size > 0 ? size : null });
       } catch (e) {
         return reply({ error: e?.message || "Не удалось изменить режим торговли" }, 500);
+      }
+    }
+    if (url.pathname === "/api/capital-demo/clear-journal" && request.method === "POST") {
+      try {
+        if (!env.EXECUTION_CONTROL_PIN) return reply({ error: "PIN управления DEMO не настроен." }, 503);
+        if (request.headers.get("X-Execution-Control") !== env.EXECUTION_CONTROL_PIN) return reply({ error: "Неверный PIN управления DEMO." }, 401);
+        const { mode } = await request.json();
+        await db(env, closedDemoJournalPath(mode), {
+          method: "DELETE", headers: { Prefer: "return=minimal" }
+        });
+        return reply({ ok: true });
+      } catch (e) {
+        return reply({ error: e?.message || "Не удалось очистить журнал DEMO." }, e?.message === "Invalid DEMO journal filter" ? 400 : 500);
       }
     }
     if (url.pathname === "/api/state" && request.method === "GET") {

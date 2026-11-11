@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
 import { capitalDemoPositionSnapshot, capitalDemoSettlement } from "../worker/capital-demo.js";
+import { closedDemoJournalPath } from "../worker/index.js";
+
+assert.equal(closedDemoJournalPath("ALL"), "trades?status=eq.CLOSED&execution_mode=in.(MAIN_DEMO,AI_DEMO)");
+assert.equal(closedDemoJournalPath("MAIN_DEMO"), "trades?status=eq.CLOSED&execution_mode=eq.MAIN_DEMO");
+assert.equal(closedDemoJournalPath("AI_DEMO"), "trades?status=eq.CLOSED&execution_mode=eq.AI_DEMO");
+assert.throws(() => closedDemoJournalPath("VIRTUAL"), /Invalid DEMO journal filter/);
 
 assert.deepEqual(capitalDemoPositionSnapshot({ level: 74502.5, size: 0.0005, upl: -0.12 }), {
   entry: 74502.5, demo_size: 0.0005, demo_open_pnl: -0.12

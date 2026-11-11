@@ -120,6 +120,7 @@ function renderDemoJournal(){
  const realized=confirmed.reduce((n,t)=>n+Number(t.pnl),0),estimate=estimated.reduce((n,t)=>n+Number(t.pnl),0),upl=floating.reduce((n,t)=>n+Number(t.demo_open_pnl),0);
  const set=(id,n)=>$(id).textContent=String(n);
  set("demoTotal",rows.length);set("demoOpen",open.length);set("demoClosed",closed.length);
+ $("clearDemoJournal").disabled=closed.length===0;
  set("demoWins",wins);set("demoLosses",losses);
  set("demoWinRate",wins+losses?(wins/(wins+losses)*100).toFixed(1)+"%":"—");
  for(const [id,value,count] of [["demoRealizedPnl",realized,confirmed.length],["demoEstimatedPnl",estimate,estimated.length],["demoFloatingPnl",upl,floating.length]]){
@@ -316,6 +317,24 @@ $("clearJournal").addEventListener("click",async()=>{
  if(confirm("Удалить только виртуальные сделки? История Capital.com DEMO останется без изменений."))try{await journal.clear()}catch(e){alert("Ошибка: "+e.message)}
 });
 $("refreshDemoJournal").addEventListener("click",loadDemoJournal);
+$("clearDemoJournal").addEventListener("click",async()=>{
+ const mode=$("demoJournalMode").value;
+ const scope={ALL:"основного бота и AI",MAIN_DEMO:"основного бота",AI_DEMO:"AI"}[mode];
+ if(!confirm("Удалить все ЗАКРЫТЫЕ DEMO-сделки "+scope+" из журнала и статистики? Открытые позиции останутся под контролем бота. История сделок на Capital.com не удалится."))return;
+ const pin=prompt("Введите PIN управления DEMO, чтобы очистить закрытые сделки:");
+ if(!pin)return;
+ const button=$("clearDemoJournal");button.disabled=true;button.textContent="Очищаем…";
+ try{
+  const response=await fetch(WORKER+"/api/capital-demo/clear-journal",{
+   method:"POST",headers:{"Content-Type":"application/json","X-Execution-Control":pin},body:JSON.stringify({mode})
+  });
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(result.error||"Не удалось очистить DEMO-журнал");
+  demoShown=50;
+  await loadDemoJournal();
+ }catch(error){alert("Ошибка очистки DEMO: "+error.message)}
+ finally{button.textContent="Очистить закрытые";button.disabled=false;renderDemoJournal()}
+});
 $("demoJournalMode").addEventListener("change",()=>{demoShown=50;renderDemoJournal()});
 $("demoShowMore").addEventListener("click",()=>{demoShown+=50;renderDemoJournal()});
 document.querySelectorAll(".nav [data-view]").forEach(b=>b.addEventListener("click",()=>{
