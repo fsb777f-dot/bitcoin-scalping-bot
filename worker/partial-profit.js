@@ -29,3 +29,14 @@ export function virtualSettledPnl(trade, exitPrice) {
   const firstMove = trade.side === "BUY" ? partialPrice - entry : entry - partialPrice;
   return (firstMove + finalMove) / 2;
 }
+
+// A virtual stop cannot fill better than the executable quote that crossed it.
+export function virtualStopFill(side, stop, quote) {
+  return side === "BUY" ? Math.min(stop, quote) : Math.max(stop, quote);
+}
+
+export function spreadSafeStopDistance(atrDistance, spread) {
+  // Entry is Ask for BUY and Bid for SELL. Reserve the quoted spread on top
+  // of the ATR protection so the stop is not effectively one tick away.
+  return Math.max(atrDistance + spread, spread * 2.05);
+}

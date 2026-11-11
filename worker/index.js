@@ -1,7 +1,7 @@
 import { buildContext } from "../js/indicators.js";
 import { strategies, names } from "../strategies/index.js";
 import { capitalDemoStatus, capitalDemoMarketData, capitalDemoMarketBundle, capitalDemoInstrumentRules, capitalDemoOpenPosition, capitalDemoUpdatePosition, capitalDemoReconcile } from "./capital-demo.js";
-import { virtualPartialUpdate, virtualSettledPnl } from "./partial-profit.js";
+import { virtualPartialUpdate, virtualSettledPnl, virtualStopFill, spreadSafeStopDistance } from "./partial-profit.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -313,9 +313,10 @@ async function updateOpenTrades(env, bid, ask) {
     const buy = t.side === "BUY";
     const hit = buy ? price <= currentStop : price >= currentStop;
     if (!isDemo && hit) {
-      const pnl = virtualSettledPnl(t, currentStop);
+      const exit = virtualStopFill(t.side, currentStop, price);
+      const pnl = virtualSettledPnl(t, exit);
       await patchTrade(env, t.trade_key, {
-        exit: currentStop, pnl, status: "CLOSED",
+        exit, pnl, status: "CLOSED",
         result: t.partial_exit_price != null ? "HALF_TRAILING_STOP" : t.trailing_active ? "TRAILING_STOP" : "SL"
       });
       continue;
@@ -465,7 +466,7 @@ async function runScan(env) {
   const canOpenAiTrade = settings.aiEnabled && aiSignalChanged && !aiLossPause;
   const atrSlDistance = context.atr * 1.2;
   // Protective levels use the same ATR distance in every mode and respect live spread.
-  const slDistance = Math.max(atrSlDistance, market.spread * 1.05);
+  const slDistance = spreadSafeStopDistance(atrSlDistance, market.spread);
 
   // The classic scanner always makes its own decision and records its own virtual trade.
   const normalEntry = normalSide === "BUY" ? market.ask : normalSide === "SELL" ? market.bid : null;
