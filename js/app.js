@@ -2,6 +2,7 @@ import{createMarketChart}from"./chart.js";
 import{createJournal}from"./journal.js";
 import{initBitcoinBacktest}from"./backtest.js";
 import { initGptStrategyUi } from "./gpt-strategy-ui.js";
+import { initTradingTerminal } from "./terminal.js";
 import{names}from"../strategies/index.js";
 import{supabase}from"./supabase.js";
 const $=id=>document.getElementById(id);
@@ -11,6 +12,7 @@ let tf="1m",chart=createMarketChart($("chart")),settings=null,serverState=null,p
 let aiJournalLoading=false;
 const journal=createJournal(supabase);
 initGptStrategyUi(WORKER);
+const terminal=initTradingTerminal(supabase);
 const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),consensus_enabled:true,required_matches:3,risk_reward:2,ai_enabled:false,execution_mode:"VIRTUAL",trade_size:null});
 function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"TradingView график":"График не загрузился")}
 function syncControls(){
@@ -260,6 +262,7 @@ $("clearJournal").addEventListener("click",async()=>{
 document.querySelectorAll(".nav [data-view]").forEach(b=>b.addEventListener("click",()=>{
  document.querySelectorAll("main [data-screen]").forEach(s=>s.hidden=s.dataset.screen!==b.dataset.view);
  document.querySelectorAll(".nav [data-view]").forEach(x=>x.classList.toggle("active",x===b));
+ if(b.dataset.view==="terminal")terminal.activate();else terminal.deactivate();
 }));
 (async()=>{
  try{
