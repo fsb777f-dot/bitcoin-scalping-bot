@@ -169,3 +169,10 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 .execution-size button{padding:8px 10px;cursor:pointer}
 .execution-size button:disabled{opacity:.6}
 .execution-note{margin-top:9px;line-height:1.45}
+
+/* Swipeable seven-tab navigation on narrow iPhone screens. */
+.nav{justify-content:flex-start;gap:4px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none}
+.nav::-webkit-scrollbar{display:none}
+.nav button{flex:0 0 auto;padding:8px 12px}
+#gpt-section .ai-journal-stats{margin:14px 0}
+#gpt-section .test-trade{padding:11px;margin:8px 0;border:1px solid var(--line);border-radius:11px;font-size:12px;line-height:1.8}
