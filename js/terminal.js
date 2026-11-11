@@ -87,6 +87,28 @@ export function initTradingTerminal(supabase) {
   if (!$("terminal-section")) return { activate() {}, deactivate() {} };
   let active = false, timer = null, busy = false, chartFetchedAt = 0, chartBusy = false;
 
+  // On phones one compact Overview is visible; detailed panels switch locally,
+  // without changing scanners or saving anything to the trading database.
+  const allowedPanes = ["overview", "systems", "strategies", "trades"];
+  function showPane(view) {
+    if (!allowedPanes.includes(view)) return;
+    document.querySelectorAll("#terminal-section [data-tt-view]").forEach(button => {
+      const selected = button.dataset.ttView === view;
+      button.classList.toggle("is-active", selected);
+      button.setAttribute("aria-selected", String(selected));
+    });
+    document.querySelectorAll("#terminal-section [data-tt-pane]").forEach(pane => {
+      pane.classList.toggle("is-active", pane.dataset.ttPane === view);
+      if (pane.dataset.ttPane === view) pane.scrollTop = 0;
+    });
+  }
+  document.querySelectorAll("#terminal-section [data-tt-view]").forEach(button => {
+    button.addEventListener("click", () => showPane(button.dataset.ttView));
+  });
+  $("ttQuick").addEventListener("click", event => {
+    if (event.target.closest("button[data-tt-go]")) showPane("systems");
+  });
+
   function setSignal(id, side, description) {
     const element = $(id + "Side");
     element.textContent = side == null ? "—" : safeSide(side);
@@ -112,6 +134,9 @@ export function initTradingTerminal(supabase) {
         + '" title="' + escape(good ? (stale ? "Последнее обновление " + dateText(stamp) : "Источник доступен") : (item?.reason?.message || "Ошибка загрузки"))
         + '"><i class="tt-dot"></i>' + escape(name) + ' · ' + label + '</span>';
     }).join("") + '<span class="tt-source">Обновлено ' + escape(new Date().toLocaleTimeString("ru-RU")) + '</span>';
+    const count = pairs.filter(([, key]) => responses[key]?.status === "fulfilled").length;
+    $("ttHealth").textContent = count + "/" + pairs.length + " источников";
+    $("ttHealth").classList.toggle("tt-health-warning", count !== pairs.length);
   }
 
   function signalSummary(state, gold, test) {
@@ -144,6 +169,29 @@ export function initTradingTerminal(supabase) {
       setSignal("ttTest", test.state.signals?.consensus || "WAIT",
         number(votes.length, 0) + "/3 подтверждения · " + dateText(test.state.updated_at));
     } else setSignal("ttTest", null, "Тестовый Worker недоступен");
+  }
+
+  function quickSummary(state, gold, btcGpt, goldGpt, test) {
+    const results = [];
+    const add = (name, side, value) => results.push({ name, side: side || "WAIT", value });
+    add("₿ Основной", state?.side, state ? number(state.count, 0) + "/" + number(state.required_matches, 0) + " совп." : "—");
+    add("₿ AI", state?.ai_enabled ? state.ai_side : (state ? "OFF" : "WAIT"), state ? uiText("aiPnl") + " USD/BTC" : "—");
+    add("✦ Gold AI", gold?.state?.side, gold?.stats ? amount(gold.stats.pnl) + " USD/oz" : "—");
+    add("ЧПТ · BTC", btcGpt?.state?.side, btcGpt?.stats ? amount(btcGpt.stats.pnl) + " USD/BTC" : "—");
+    add("ЧПТ · Gold", goldGpt?.state?.side, goldGpt?.stats ? amount(goldGpt.stats.pnl) + " USD/oz" : "—");
+    const testTrades = (test?.trades || []).filter(t => t.strategy === "consensus" && t.status === "CLOSED");
+    const testPnl = testTrades.reduce((sum, trade) => sum + (validNumber(trade.pnl) ? Number(trade.pnl) : 0), 0);
+    add("Тест · 3 стратегии", test?.state?.signals?.consensus,
+      test?.state ? amount(testPnl) + " USD/BTC · выборка" : "—");
+    const smc = test?.state?.analysis?.smc;
+    add("Тест · SMC", smc?.signal?.side, smc?.stats ? amount(smc.stats.pnl) + " USD/BTC" : "—");
+    $("ttQuick").innerHTML = results.map(item =>
+      '<button type="button" class="tt-quick-card" data-tt-go="systems" title="Подробная статистика">'
+      + '<span class="tt-quick-main"><span class="tt-quick-name">' + escape(item.name)
+      + '</span><span class="tt-quick-value">' + escape(item.value) + '</span></span>'
+      + '<span class="tt-quick-side ' + directionClass(item.side) + '">'
+      + escape(safeSide(item.side)) + '</span></button>'
+    ).join("");
   }
 
   function systemCards(state, gold, btcGpt, goldGpt, test) {
@@ -326,6 +374,7 @@ export function initTradingTerminal(supabase) {
       sourceStrip(entries);
       signalSummary(state, gold, test);
       systemCards(state, gold, value("btcGpt"), value("goldGpt"), test);
+      quickSummary(state, gold, value("btcGpt"), value("goldGpt"), test);
       heatmap(state);
       activities(gold, value("btcGpt"), value("goldGpt"), test, value("recent"));
       $("ttFooter").textContent = "Обновлено " + new Date().toLocaleString("ru-RU")
@@ -345,11 +394,14 @@ export function initTradingTerminal(supabase) {
   const activate = () => {
     if (active) return;
     active = true;
+    document.body.classList.add("tt-mobile-open");
+    showPane("overview");
     refresh(true);
     timer = setInterval(() => { if (!document.hidden) refresh(); }, 30000);
   };
   const deactivate = () => {
     active = false;
+    document.body.classList.remove("tt-mobile-open");
     if (timer !== null) clearInterval(timer);
     timer = null;
   };
