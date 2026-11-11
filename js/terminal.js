@@ -102,9 +102,15 @@ export function initTradingTerminal(supabase) {
     $("ttSources").innerHTML = pairs.map(([name, key]) => {
       const item = responses[key];
       const good = item?.status === "fulfilled";
-      return '<span class="tt-source ' + (good ? "tt-up" : "tt-error")
-        + '" title="' + escape(good ? "Источник доступен" : (item?.reason?.message || "Ошибка загрузки"))
-        + '"><i class="tt-dot"></i>' + escape(name) + ' · ' + (good ? "OK" : "нет связи") + '</span>';
+      const payload = good ? item.value : null;
+      const stamp = key === "bitcoin" ? payload?.updated_at : key === "test" ? payload?.state?.updated_at
+        : payload?.state?.updated_at;
+      const seen = stamp ? Date.parse(stamp) : NaN;
+      const stale = Number.isFinite(seen) && Date.now() - seen > 20 * 60 * 1000;
+      const label = !good ? "нет связи" : stale ? "данные старые" : "OK";
+      return '<span class="tt-source ' + (good && !stale ? "tt-up" : "tt-error")
+        + '" title="' + escape(good ? (stale ? "Последнее обновление " + dateText(stamp) : "Источник доступен") : (item?.reason?.message || "Ошибка загрузки"))
+        + '"><i class="tt-dot"></i>' + escape(name) + ' · ' + label + '</span>';
     }).join("") + '<span class="tt-source">Обновлено ' + escape(new Date().toLocaleTimeString("ru-RU")) + '</span>';
   }
 
