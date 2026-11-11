@@ -141,9 +141,18 @@ export function initBitcoinBacktest(getSettings, workerUrl) {
     status.textContent = "Загружаем историю BTCUSD с Capital.com…";
     try {
       const timeframe = $("backtestTimeframe").value;
-      const response = await fetch(workerUrl + "/api/backtest-history?timeframe=" + encodeURIComponent(timeframe), { cache: "no-store" });
-      const history = await response.json();
-      if (!response.ok) throw new Error(history.error || "Нет исторических свечей");
+      const browserKey = "btc-backtest-history:" + timeframe;
+      let history;
+      try {
+        const response = await fetch(workerUrl + "/api/backtest-history?timeframe=" + encodeURIComponent(timeframe), { cache: "no-store" });
+        history = await response.json();
+        if (!response.ok) throw new Error(history.error || "Нет исторических свечей");
+        try { localStorage.setItem(browserKey, JSON.stringify(history)); } catch {}
+      } catch (error) {
+        try { history = JSON.parse(localStorage.getItem(browserKey)); } catch { history = null; }
+        if (!history?.candles?.length) throw error;
+        history = { ...history, stale: true, warning: "Capital.com сейчас недоступен; использована история, ранее сохранённая на этом устройстве." };
+      }
       status.textContent = "Рассчитываем 41 стратегию на устройстве…";
       // Yield once so the progress label becomes visible before the CPU-intensive calculation.
       await new Promise(resolve => setTimeout(resolve, 0));
@@ -151,7 +160,7 @@ export function initBitcoinBacktest(getSettings, workerUrl) {
         riskReward: Number($("backtestRiskReward").value) });
       $("backtestResults").innerHTML = summary(result.main) + summary(result.ai);
       showStrategies(result.perStrategy);
-      status.textContent = `Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Журналы не менялись.`;
+      status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Журналы не менялись.`;
     } catch (e) { status.textContent = "Бэктест не выполнен: " + e.message; }
     finally { run.disabled = false; }
   });

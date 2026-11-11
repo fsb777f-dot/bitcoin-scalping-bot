@@ -1,18 +1,26 @@
 const DEMO_BASE = "https://demo-api-capital.backend-capital.com/api/v1";
 
 async function request(path, headers = {}, init = {}) {
-  const response = await fetch(DEMO_BASE + path, {
-    ...init,
-    headers: { Accept: "application/json", ...headers, ...(init.headers || {}) }
-  });
-  const body = await response.text();
-  let data = null;
-  try { data = body ? JSON.parse(body) : null; } catch {}
-  if (!response.ok) {
+  const method = (init.method || "GET").toUpperCase();
+  // Capital.com permits only one POST /session per API key per second. Retries
+  // are safe for authentication/GETs, never for trade-changing POSTs or PUTs.
+  const safeToRetry = method === "GET" || (method === "POST" && path === "/session");
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(DEMO_BASE + path, {
+      ...init,
+      headers: { Accept: "application/json", ...headers, ...(init.headers || {}) }
+    });
+    const body = await response.text();
+    let data = null;
+    try { data = body ? JSON.parse(body) : null; } catch {}
     const message = data?.errorCode || data?.error || ("HTTP " + response.status);
+    if (response.ok) return { data, headers: response.headers };
+    if (safeToRetry && attempt < 2 && (response.status === 429 || /too-many.requests/i.test(message))) {
+      await new Promise(resolve => setTimeout(resolve, 1200 * (attempt + 1) + Math.random() * 200));
+      continue;
+    }
     throw new Error("Capital.com Demo " + message);
   }
-  return { data, headers: response.headers };
 }
 
 export async function capitalDemoStatus(env) {

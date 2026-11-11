@@ -12,6 +12,8 @@ const cors = {
 const reply = (data, status = 200) => new Response(JSON.stringify(data), {
   status, headers: { ...cors, "Content-Type": "application/json" }
 });
+// Per-isolate fast cache; edge Cache API below also helps when isolates rotate.
+const backtestHistoryCache = new Map();
 const clamp = (n, min, max) => Math.max(min, Math.min(max, Number(n) || min));
 
 function supabaseHeaders(env, extra = {}) {
@@ -581,10 +583,32 @@ export default {
     if (url.pathname === "/api/backtest-history" && request.method === "GET") {
       const timeframe = url.searchParams.get("timeframe") || "1m";
       if (!["1m", "5m", "15m"].includes(timeframe)) return reply({ error: "Invalid backtest timeframe" }, 400);
+      const key = new Request(url.origin + "/api/backtest-history?timeframe=" + timeframe);
+      const cache = globalThis.caches?.default;
+      let saved = backtestHistoryCache.get(timeframe) || null;
+      if (!saved && cache) {
+        try { saved = await (await cache.match(key))?.json() || null; } catch {}
+        if (saved) backtestHistoryCache.set(timeframe, saved);
+      }
+      const refreshMs = { "1m": 120000, "5m": 300000, "15m": 900000 }[timeframe];
+      if (saved?.fetched_at && Date.now() - Date.parse(saved.fetched_at) < refreshMs) return reply(saved);
       try {
         const history = await capitalDemoMarketData(env, timeframe, null, null, 1000);
-        return reply({ source: history.source, symbol: "BTCUSD", timeframe, candles: history.candles });
-      } catch (e) { return reply({ error: e?.message || "Capital.com history unavailable" }, 502); }
+        const result = { source: history.source, symbol: "BTCUSD", timeframe,
+          fetched_at: new Date().toISOString(), candles: history.candles };
+        backtestHistoryCache.set(timeframe, result);
+        if (cache) {
+          try {
+            await cache.put(key, new Response(JSON.stringify(result), {
+              headers: { "Cache-Control": "public, max-age=86400", "Content-Type": "application/json" }
+            }));
+          } catch (error) { console.warn("Backtest edge-cache unavailable", error?.message || String(error)); }
+        }
+        return reply(result);
+      } catch (e) {
+        if (saved) return reply({ ...saved, stale: true, warning: "Capital.com временно ограничил запросы; показана сохранённая история." });
+        return reply({ error: e?.message || "Capital.com history unavailable" }, 502);
+      }
     }
     if (url.pathname === "/api/execution-mode" && request.method === "POST") {
       try {
