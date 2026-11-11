@@ -175,6 +175,29 @@ export async function capitalDemoAuth(env) {
   return { CST: cst, "X-SECURITY-TOKEN": security };
 }
 
+// Only a broker event explicitly tied to this position can close its journal
+// entry. The opening activity (USER/ACCEPTED) must never count as a close.
+export function capitalDemoCloseEvent(trade, activities) {
+  const dealId = String(trade.capital_deal_id || "");
+  if (!dealId) return null;
+  const openedAt = Number(trade.trade_time);
+  return (activities || []).filter(item => {
+    const details = item.details || {};
+    const ids = [item.dealId, details.dealId, details.positionDealId, details.openingDealId,
+      ...(Array.isArray(details.affectedDeals) ? details.affectedDeals.map(d => d.dealId) : [])];
+    if (!ids.some(id => id != null && String(id) === dealId)) return false;
+    if (item.epic && item.epic !== "BTCUSD") return false;
+    // Capital.com's dateUTC omits the trailing Z; JavaScript otherwise parses
+    // it in the server's local timezone and rejects valid close events.
+    const utc = item.dateUTC && String(item.dateUTC);
+    const eventAt = utc ? Date.parse(/(?:Z|[+-]\d\d:\d\d)$/.test(utc) ? utc : utc + "Z") : NaN;
+    if (Number.isFinite(openedAt) && openedAt > 0 && Number.isFinite(eventAt) && eventAt < openedAt - 120000) return false;
+    if (item.type !== "POSITION" || !["ACCEPTED", "EXECUTED"].includes(item.status)) return false;
+    return ["SL", "TP", "CLOSE_OUT"].includes(item.source)
+      || (item.status === "EXECUTED" && ["USER", "SYSTEM"].includes(item.source));
+  }).sort((a, b) => String(b.dateUTC || b.date || "").localeCompare(String(a.dateUTC || a.date || "")))[0] || null;
+}
+
 export async function capitalDemoReconcile(env, trades) {
   const auth = await capitalDemoAuth(env);
   const result = await request("/positions", auth);
@@ -182,6 +205,18 @@ export async function capitalDemoReconcile(env, trades) {
   const openById = new Map(positions.map(item => [item.position?.dealId, item.position]).filter(([id]) => id));
   const summary = { checked: 0, stillOpen: 0, closed: 0, unresolved: 0 };
   let transactions = null;
+  let recentActivities = null;
+  const getRecentActivities = async () => {
+    if (recentActivities !== null) return recentActivities;
+    try {
+      const history = await request("/history/activity?detailed=true&lastPeriod=86400", auth);
+      recentActivities = Array.isArray(history.data?.activities) ? history.data.activities : [];
+    } catch (error) {
+      console.warn("Capital.com recent close events unavailable", error?.message || String(error));
+      recentActivities = [];
+    }
+    return recentActivities;
+  };
   const getTransactions = async () => {
     if (transactions !== null) return transactions;
     try {
@@ -212,6 +247,20 @@ export async function capitalDemoReconcile(env, trades) {
       continue;
     }
 
+    // A processed, exactly referenced closing transaction is itself broker
+    // proof of settlement, even if the activity endpoint omits the stop event.
+    const closingTransaction = capitalDemoTradeTransaction(trade, await getTransactions());
+    if (closingTransaction && /clos(e|ed)/i.test(closingTransaction.note || "")) {
+      const time = closingTransaction.dateUtc || closingTransaction.date || new Date().toISOString();
+      await dbPatchTrade(env, trade.trade_key, {
+        status: "CLOSED", result: "BROKER_CLOSED", capital_status: "CLOSED", demo_open_pnl: null,
+        demo_closed_at: /(?:Z|[+-]\d\d:\d\d)$/.test(time) ? time : time + "Z",
+        ...capitalDemoSettlement(trade, [closingTransaction])
+      });
+      summary.closed++;
+      continue;
+    }
+
     // Absence from /positions is not proof of closure. Require a matching,
     // explicitly executed position activity before changing the journal.
     const activityResult = await request(
@@ -219,12 +268,16 @@ export async function capitalDemoReconcile(env, trades) {
       auth
     );
     const activities = Array.isArray(activityResult.data?.activities) ? activityResult.data.activities : [];
-    const closeEvent = activities
-      .filter(item => item.dealId === dealId && item.type === "POSITION" && ["ACCEPTED", "EXECUTED"].includes(item.status)
-        && (["TP", "SL"].includes(item.source) || (item.status === "EXECUTED" && ["USER", "SYSTEM", "CLOSE_OUT"].includes(item.source))))
-      .sort((a, b) => String(b.dateUTC || b.date || "").localeCompare(String(a.dateUTC || a.date || "")))[0];
+    let closeEvent = capitalDemoCloseEvent(trade, activities);
+    // Capital.com may put the closing deal ID on the activity while referring
+    // to the original position in details; the dealId-filtered response misses
+    // that event. Check recent history, but still demand the exact position ID.
+    if (!closeEvent) closeEvent = capitalDemoCloseEvent(trade, await getRecentActivities());
 
     if (!closeEvent) {
+      // A missing live position is not an OPEN position, but neither is it
+      // proof of a settled trade. Flag it without inventing an exit or PnL.
+      await dbPatchTrade(env, trade.trade_key, { capital_status: "RECONCILE_PENDING", demo_open_pnl: null });
       summary.unresolved++;
       continue;
     }
@@ -260,11 +313,15 @@ export function capitalDemoPositionSnapshot(position) {
   };
 }
 
-export function capitalDemoSettlement(trade, transactions, closePrice = null) {
+export function capitalDemoTradeTransaction(trade, transactions) {
   const refs = [trade.capital_deal_id, trade.capital_deal_reference].filter(Boolean).map(String);
-  const match = transactions.find(tx => tx.transactionType === "TRADE"
+  return (transactions || []).find(tx => tx.transactionType === "TRADE"
     && tx.status === "PROCESSED" && tx.currency === "USD"
     && (refs.includes(String(tx.dealId || "")) || refs.includes(String(tx.reference || ""))));
+}
+
+export function capitalDemoSettlement(trade, transactions, closePrice = null) {
+  const match = capitalDemoTradeTransaction(trade, transactions);
   // Capital.com calls the balance-changing transaction amount `size`.
   // If there is no exact transaction reference, its PnL remains unknown.
   const pnl = finiteBrokerNumber(match?.size);

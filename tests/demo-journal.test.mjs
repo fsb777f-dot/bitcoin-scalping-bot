@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { capitalDemoPositionSnapshot, capitalDemoSettlement } from "../worker/capital-demo.js";
+import { capitalDemoPositionSnapshot, capitalDemoSettlement, capitalDemoCloseEvent, capitalDemoTradeTransaction } from "../worker/capital-demo.js";
 import { closedDemoJournalPath } from "../worker/index.js";
 
 assert.equal(closedDemoJournalPath("ALL"), "trades?status=eq.CLOSED&execution_mode=in.(MAIN_DEMO,AI_DEMO)");
@@ -19,10 +19,20 @@ assert.deepEqual(capitalDemoSettlement(trade, otherAccount), { pnl: null, demo_p
   "unmatched transactions must never become this deal's profit");
 assert.deepEqual(capitalDemoSettlement(trade, [{ reference: "mine", transactionType: "TRADE", status: "PROCESSED", currency: "USD", size: "-1.23" }]),
   { pnl: -1.23, demo_pnl_source: "CAPITAL_TRADE" });
+assert.equal(capitalDemoTradeTransaction(trade, otherAccount), undefined,
+  "another broker transaction cannot settle the user's trade");
 assert.deepEqual(capitalDemoSettlement(trade, otherAccount, 102), { pnl: 0, demo_pnl_source: "ESTIMATE" },
   "estimate is labeled and rounded to USD cents");
 assert.deepEqual(capitalDemoSettlement({ ...trade, side: "SELL", demo_size: 0.5 }, otherAccount, 102),
   { pnl: -1, demo_pnl_source: "ESTIMATE" });
 assert.deepEqual(capitalDemoSettlement({ ...trade, demo_size: null }, otherAccount, 102),
   { pnl: null, demo_pnl_source: null }, "unknown volume must never produce invented PnL");
+const stopClose = { dealId: "new-close-id", epic: "BTCUSD", type: "POSITION", status: "ACCEPTED",
+  source: "SL", dateUTC: "2026-11-11T17:24:00", details: { positionDealId: "mine", closingLevel: 102 } };
+assert.deepEqual(capitalDemoCloseEvent({ ...trade, trade_time: Date.parse("2026-11-11T17:20:00Z") }, [stopClose]), stopClose,
+  "a stop must match its original position even when the closing action has a different ID");
+assert.equal(capitalDemoCloseEvent(trade, [{ ...stopClose, details: { positionDealId: "other" } }]), null,
+  "another position's stop must never settle this trade");
+assert.equal(capitalDemoCloseEvent(trade, [{ dealId: "mine", type: "POSITION", status: "ACCEPTED", source: "USER" }]), null,
+  "opening activity cannot be treated as a closing trade");
 console.log("Capital.com DEMO journal checks passed");
