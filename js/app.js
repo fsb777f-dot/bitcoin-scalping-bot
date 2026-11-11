@@ -113,8 +113,9 @@ function renderDemoJournal(){
  const rows=mode==="ALL"?demoRows:demoRows.filter(t=>t.execution_mode===mode);
  const closed=rows.filter(t=>t.status==="CLOSED"),open=rows.filter(t=>t.status==="OPEN");
  const decided=closed.filter(t=>t.pnl!=null&&Number.isFinite(Number(t.pnl)));
- const confirmed=decided.filter(t=>t.demo_pnl_source!=="ESTIMATE"),estimated=decided.filter(t=>t.demo_pnl_source==="ESTIMATE");
- const wins=decided.filter(t=>Number(t.pnl)>0).length,losses=decided.filter(t=>Number(t.pnl)<0).length;
+ const confirmed=decided.filter(t=>t.demo_pnl_source==="CAPITAL_TRADE"),estimated=decided.filter(t=>t.demo_pnl_source==="ESTIMATE");
+ const measured=[...confirmed,...estimated],unverified=decided.length-measured.length;
+ const wins=measured.filter(t=>Number(t.pnl)>0).length,losses=measured.filter(t=>Number(t.pnl)<0).length;
  const floating=open.filter(t=>t.demo_open_pnl!=null&&Number.isFinite(Number(t.demo_open_pnl)));
  const realized=confirmed.reduce((n,t)=>n+Number(t.pnl),0),estimate=estimated.reduce((n,t)=>n+Number(t.pnl),0),upl=floating.reduce((n,t)=>n+Number(t.demo_open_pnl),0);
  const set=(id,n)=>$(id).textContent=String(n);
@@ -128,6 +129,7 @@ function renderDemoJournal(){
  const unknown=closed.length-decided.length;
  $("demoJournalNote").textContent="Capital.com DEMO · только подтверждённые брокером ордера. "
   +(unknown?"У "+unknown+" закрытых сделок нет подтверждённого PnL; они не включены в итог. ":"")
+  +(unverified?"У "+unverified+" старых сделок PnL записан без указания источника; он не включён в итоговую статистику. ":"")
   +(estimated.length?"Оценка по ценам для "+estimated.length+" сделок — без комиссий и финансирования, не брокерский итог. ":"")
   +(open.length!==floating.length?"Текущий PnL получен для "+floating.length+" из "+open.length+" открытых. ":"")
   +"Суммы в USD по фактическому размеру сделки; виртуальный PnL считается отдельно. Данные обновляются при серверном сканировании.";
@@ -135,8 +137,8 @@ function renderDemoJournal(){
   const isOpen=t.status==="OPEN",pnl=isOpen?t.demo_open_pnl:t.pnl;
   const time=Number(t.trade_time)?new Date(Number(t.trade_time)).toLocaleString("ru-RU"):"—";
   const closedAt=t.demo_closed_at?new Date(t.demo_closed_at).toLocaleString("ru-RU"):null;
-  const amount=pnl==null?"—":(t.demo_pnl_source==="ESTIMATE"?"≈":"")+(Number(pnl)>=0?"+":"")+fmt(pnl)+" USD";
-  const result=isOpen?"ОТКРЫТА":pnl==null?"ЗАКРЫТА · PnL НЕТ":Number(pnl)>0?"ПРИБЫЛЬ":Number(pnl)<0?"УБЫТОК":"БЕЗУБЫТОК";
+  const amount=pnl==null?"—":(t.demo_pnl_source==="ESTIMATE"?"≈":"")+(Number(pnl)>=0?"+":"")+fmt(pnl)+" USD"+(t.status==="CLOSED"&&!t.demo_pnl_source?" · архив":"");
+  const result=isOpen?"ОТКРЫТА":pnl==null?"ЗАКРЫТА · PnL НЕТ":!t.demo_pnl_source?"АРХИВ · НЕ ПРОВЕРЕНО":Number(pnl)>0?"ПРИБЫЛЬ":Number(pnl)<0?"УБЫТОК":"БЕЗУБЫТОК";
   const css=isOpen?"yellow":pnl==null?"muted":Number(pnl)>0?"green":Number(pnl)<0?"red":"muted";
   const id=String(t.capital_deal_id||"");
   return '<div class="ai-trade-row"><div class="ai-trade-top"><b class="'+(t.side==="BUY"?"green":"red")+'">'+safe(t.side)+'</b><span class="'+css+'">'+result+'</span><span class="demo-source">'+(t.execution_mode==="AI_DEMO"?"AI DEMO":"Основной DEMO")+'</span><time>'+safe(time)+'</time></div>'
