@@ -78,3 +78,166 @@
  .terminal-screen .tt-price{font-size:30px}
 }
 @media(prefers-reduced-motion:reduce){.terminal-screen .tt-orb::before,.terminal-screen .tt-orb::after{animation:none}}
+
+
+/* Compact mobile command center. The overview fits the visible iPhone viewport;
+   full logs and 41-strategy details live in separate internal views. */
+.terminal-screen .tt-health,.terminal-screen .tt-view-switch,.terminal-screen .tt-mobile-summary,
+.terminal-screen .tt-mobile-heading{display:none}
+.terminal-screen .tt-pane{min-width:0}
+.terminal-screen .tt-view-button:focus-visible,.terminal-screen .tt-quick-card:focus-visible{
+ outline:2px solid #62c8fc;outline-offset:2px
+}
+@media(max-width:610px){
+  body.tt-mobile-open{
+    height:100dvh;min-height:100dvh;overflow:hidden;padding-bottom:0
+  }
+  body.tt-mobile-open>header{display:none}
+  body.tt-mobile-open main{
+    display:block!important;width:100%;max-width:none;min-height:0;
+    padding:0!important;margin:0!important;gap:0
+  }
+  body.tt-mobile-open .nav{
+    height:calc(60px + env(safe-area-inset-bottom));
+    padding:7px 9px calc(7px + env(safe-area-inset-bottom));
+    align-items:flex-start;flex-wrap:nowrap;justify-content:flex-start;gap:3px
+  }
+  body.tt-mobile-open .nav button{padding:8px 10px;font-size:11px;white-space:nowrap}
+  body.tt-mobile-open #terminal-section{
+    display:flex;flex-direction:column;gap:0;
+    width:100%;max-width:none;min-height:0;
+    height:calc(100dvh - 60px - env(safe-area-inset-bottom));
+    padding:9px 10px 5px;
+    margin:0;border:0;border-radius:0;
+    overflow:hidden;
+    background:radial-gradient(ellipse at 85% 5%,#10233a,#090d16 60%)
+  }
+  .terminal-screen .tt-top{
+    display:flex;flex:0 0 auto;flex-wrap:nowrap;align-items:center;gap:7px;
+    margin:0 0 5px
+  }
+  .terminal-screen .tt-top>div:first-child{min-width:0;flex:1}
+  .terminal-screen .tt-eyebrow,.terminal-screen .tt-sub,.terminal-screen .tt-mode{display:none}
+  .terminal-screen .tt-title{
+    font-size:18px;letter-spacing:-.035em;line-height:1.1;margin:1px 0 0;
+    white-space:nowrap
+  }
+  .terminal-screen .tt-actions{gap:6px;flex-wrap:nowrap;align-items:center}
+  .terminal-screen .tt-health{
+    display:inline-flex;font-size:9px;color:#72d9af;background:#10271f;
+    padding:6px 8px;border:1px solid #245641;border-radius:7px;white-space:nowrap
+  }
+  .terminal-screen .tt-health.tt-health-warning{color:#ffd28a;border-color:#695139;background:#342719}
+  .terminal-screen .tt-refresh{
+    display:grid;place-items:center;width:30px;height:30px;padding:0;font-size:0;
+    border-radius:8px;flex-shrink:0
+  }
+  .terminal-screen .tt-refresh::before{content:"↻";font-size:23px;line-height:1}
+  .terminal-screen .tt-strip{display:none}
+  .terminal-screen .tt-view-switch{
+    display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:3px;
+    flex:0 0 auto;margin:3px 0 5px;padding:3px;
+    background:#111d31;border:1px solid #253754;border-radius:11px
+  }
+  .terminal-screen .tt-view-button{
+    color:#90a9c5;font-size:10px;font-weight:700;line-height:1.1;
+    min-height:29px;padding:7px 2px;background:transparent;
+    border:0;border-radius:7px;cursor:pointer;white-space:nowrap
+  }
+  .terminal-screen .tt-view-button.is-active{background:#274969;color:#f0f8ff}
+  .terminal-screen .tt-pane{display:none;min-height:0}
+  .terminal-screen .tt-pane.is-active{
+    display:flex;flex-direction:column;flex:1 1 auto;
+    min-height:0;max-height:100%;overscroll-behavior:contain
+  }
+  .terminal-screen .tt-pane.is-active:not([data-tt-pane="overview"]){
+    overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 2px 12px
+  }
+  .terminal-screen .tt-pane[data-tt-pane="overview"].is-active{overflow:hidden}
+  .terminal-screen .tt-section-heading{
+    font-size:10px;margin:7px 0 5px;font-weight:800;
+    line-height:1.2;flex:0 0 auto
+  }
+  .terminal-screen .tt-section-heading small{font-size:9px}
+  .terminal-screen .tt-card{border-radius:10px;padding:8px}
+  .terminal-screen .tt-markets{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;
+    flex:0 0 auto
+  }
+  .terminal-screen .tt-market-name{font-size:9px;letter-spacing:.02em}
+  .terminal-screen .tt-price{font-size:18px;margin-top:2px;line-height:1.1}
+  .terminal-screen .tt-pill{display:none}
+  .terminal-screen .tt-chart{height:48px;margin:5px -2px 2px}
+  .terminal-screen .tt-chart-empty{padding:10px 0;font-size:9px}
+  .terminal-screen .tt-chart-note{font-size:8px;gap:0}
+  .terminal-screen .tt-chart-note span:first-child{display:none}
+  .terminal-screen .tt-ai-layout{display:block;flex:0 0 auto}
+  .terminal-screen .tt-core{display:none}
+  .terminal-screen .tt-ai-layout>.tt-card:not(.tt-core){
+    padding:0;background:transparent;border:0;border-radius:0
+  }
+  .terminal-screen .tt-signals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+  .terminal-screen .tt-signal-box{border-radius:8px;padding:6px 8px;min-width:0}
+  .terminal-screen .tt-signal-label{
+    font-size:9px;line-height:1.1;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis
+  }
+  .terminal-screen .tt-direction{
+    display:inline-block;font-size:16px;line-height:1;margin:4px 0 2px
+  }
+  .terminal-screen .tt-signal-box .tt-mini{
+    font-size:9px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+  }
+  .terminal-screen #ttAnalysisNote{display:none}
+  .terminal-screen .tt-mobile-heading{display:flex}
+  .terminal-screen .tt-mobile-summary{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;
+    min-height:0;flex:0 0 auto
+  }
+  .terminal-screen .tt-quick-card{
+    text-align:left;display:flex;align-items:center;justify-content:space-between;gap:6px;
+    background:#101e31;border:1px solid #2a3f5b;border-radius:9px;
+    color:#e5f4ff;padding:7px 8px;min-height:48px;width:100%;
+    min-width:0;cursor:pointer
+  }
+  .terminal-screen .tt-quick-main{min-width:0;display:block}
+  .terminal-screen .tt-quick-name{
+    display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;
+    font-size:10px;line-height:1.2;color:#b6cbe2
+  }
+  .terminal-screen .tt-quick-value{
+    display:block;font-size:12px;font-weight:850;line-height:1.25;
+    margin-top:3px;font-variant-numeric:tabular-nums;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+  }
+  .terminal-screen .tt-quick-side{
+    flex:0 0 auto;align-self:center;font-size:9px;font-weight:850;
+    border:1px solid #29455a;border-radius:6px;padding:3px 5px;
+  }
+  .terminal-screen [data-tt-pane="systems"] .tt-systems{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .terminal-screen [data-tt-pane="systems"] .tt-card{padding:10px}
+  .terminal-screen [data-tt-pane="systems"] .tt-system-title b{font-size:11px}
+  .terminal-screen [data-tt-pane="systems"] .tt-system-sub{font-size:9px;margin:3px 0 9px}
+  .terminal-screen [data-tt-pane="systems"] .tt-metrics{gap:6px}
+  .terminal-screen [data-tt-pane="systems"] .tt-metric small{font-size:9px}
+  .terminal-screen [data-tt-pane="systems"] .tt-metric strong{font-size:11px}
+  .terminal-screen [data-tt-pane="systems"] .tt-system-footer{font-size:9px;margin-top:7px}
+  .terminal-screen [data-tt-pane="strategies"] .tt-heatmap{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .terminal-screen [data-tt-pane="strategies"] .tt-heat{min-height:66px;padding:9px 7px}
+  .terminal-screen [data-tt-pane="trades"] .tt-trade{padding:9px 0}
+  .terminal-screen .tt-footer{font-size:9px;margin:11px 0 0}
+}
+@media(max-width:380px){
+ .terminal-screen .tt-price{font-size:16px}
+ .terminal-screen .tt-chart{height:35px}
+ .terminal-screen .tt-signal-box{padding:5px 6px}
+ .terminal-screen .tt-quick-card{min-height:43px;padding:5px 6px}
+ .terminal-screen .tt-quick-value{font-size:11px}
+}
+@media(max-height:730px) and (max-width:610px){
+ .terminal-screen .tt-chart{height:29px}
+ .terminal-screen .tt-market-name{font-size:8px}
+ .terminal-screen .tt-quick-card{min-height:40px;padding:4px 6px}
+ .terminal-screen .tt-signal-box{padding:4px 6px}
+ .terminal-screen .tt-section-heading{margin:4px 0 3px}
+}
