@@ -16,6 +16,7 @@ const amount = (value, unit = "") => validNumber(value)
 const directionClass = side => side === "BUY" ? "tt-buy" : side === "SELL" ? "tt-sell"
   : side === "OFF" ? "tt-off" : "tt-wait";
 const dateText = value => {
+  if (value === null || value === undefined || value === "") return "—";
   const time = Number(value);
   const date = new Date(Number.isFinite(time) ? (time < 1e11 ? time * 1000 : time) : value);
   return Number.isFinite(date.getTime()) ? date.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
@@ -23,7 +24,9 @@ const dateText = value => {
 const safeSide = side => ["BUY", "SELL", "WAIT", "OFF"].includes(side) ? side : "WAIT";
 const uiText = id => $(id)?.textContent?.trim() || "—";
 const readJson = async url => {
-  const response = await fetch(url, { method: "GET", cache: "no-store" });
+  const signal = typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+    ? AbortSignal.timeout(18000) : undefined;
+  const response = await fetch(url, { method: "GET", cache: "no-store", signal });
   if (!response.ok) throw Error("HTTP " + response.status);
   const data = await response.json();
   if (data?.error) throw Error(String(data.error));
@@ -285,7 +288,8 @@ export function initTradingTerminal(supabase) {
       $("ttGoldChart").innerHTML = '<div class="tt-chart-empty">Gold 5m: нет данных</div>';
       $("ttGoldChartAt").textContent = "—";
     }
-    chartFetchedAt = Date.now();
+    // Failed feeds are retried quickly instead of hiding a temporary outage for five minutes.
+    chartFetchedAt = Date.now() - (results.some(item => item.status === "rejected") ? 270000 : 0);
     chartBusy = false;
   }
 
@@ -324,6 +328,8 @@ export function initTradingTerminal(supabase) {
         + "показатели разных систем нельзя складывать как прибыль одного счёта. "
         + "История, спред и комиссии могут учитываться по-разному между модулями.";
       refreshCharts(forceCharts);
+    } catch (error) {
+      $("ttFooter").textContent = "Не удалось обновить терминал: " + (error?.message || String(error));
     } finally {
       busy = false;
       $("ttRefresh").disabled = false;
