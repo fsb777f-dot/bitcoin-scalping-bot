@@ -12,7 +12,7 @@ let tf="1m",chart=createMarketChart($("chart")),settings=null,serverState=null,p
 let aiJournalLoading=false;
 const journal=createJournal(supabase);
 initGptStrategyUi(WORKER);
-const terminal=initTradingTerminal(supabase);
+const terminal=initTradingTerminal(supabase,journal);
 const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),consensus_enabled:true,required_matches:3,risk_reward:2,ai_enabled:false,execution_mode:"VIRTUAL",trade_size:null});
 function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"TradingView график":"График не загрузился")}
 function syncControls(){

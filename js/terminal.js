@@ -108,7 +108,7 @@ export function computeTerminalPulse(state, gold, btcGpt, goldGpt, test, now = D
   return { side, buy, sell, wait, available: fresh.length, expected: eligible.length };
 }
 
-export function initTradingTerminal(supabase) {
+export function initTradingTerminal(supabase, journal) {
   if (!$("terminal-section")) return { activate() {}, deactivate() {} };
   let active = false, timer = null, busy = false, chartFetchedAt = 0, chartBusy = false;
 
@@ -214,8 +214,10 @@ export function initTradingTerminal(supabase) {
 
   function quickSummary(state, gold, btcGpt, goldGpt, test) {
     const results = [];
-    const add = (name, side, value) => results.push({ name, side: side || "WAIT", value });
-    add("₿ Основной", state?.side, state ? number(state.count, 0) + "/" + number(state.required_matches, 0) + " совп." : "—");
+    const add = (name, side, value, meta = "") => results.push({ name, side: side || "WAIT", value, meta });
+    const mainPnl = journal.getMainPnl();
+    const matches = state ? number(state.count, 0) + "/" + number(state.required_matches, 0) + " совп." : "—";
+    add("₿ Основной", state?.side, mainPnl == null ? "—" : amount(mainPnl), "PnL · USDT · " + matches);
     add("₿ AI", state?.ai_enabled ? state.ai_side : (state ? "OFF" : "WAIT"), state ? uiText("aiPnl") : "—");
     add("✦ Gold AI", gold?.state?.side, gold?.stats ? amount(gold.stats.pnl) : "—");
     add("ЧПТ · BTC", btcGpt?.state?.side, btcGpt?.stats ? amount(btcGpt.stats.pnl) : "—");
@@ -229,7 +231,8 @@ export function initTradingTerminal(supabase) {
     $("ttQuick").innerHTML = results.map(item =>
       '<button type="button" class="tt-quick-card" data-tt-go="systems" title="Подробная статистика">'
       + '<span class="tt-quick-main"><span class="tt-quick-name">' + escape(item.name)
-      + '</span><span class="tt-quick-value">' + escape(item.value) + '</span></span>'
+      + '</span><span class="tt-quick-value">' + escape(item.value) + '</span>'
+      + (item.meta ? '<span class="tt-quick-meta">' + escape(item.meta) + '</span>' : '') + '</span>'
       + '<span class="tt-quick-side ' + directionClass(item.side) + '">'
       + escape(safeSide(item.side)) + '</span></button>'
     ).join("");
@@ -237,14 +240,16 @@ export function initTradingTerminal(supabase) {
 
   function systemCards(state, gold, btcGpt, goldGpt, test) {
     const systems = [];
+    const mainPnl = journal.getMainPnl();
     if (!state) systems.push(unavailable("Bitcoin · основной", "Текущий сигнал не загружен"));
     else systems.push(card({
       title: "Bitcoin · основной", detail: "Основной сканер · Capital.com",
       side: state.side || "WAIT",
-      metrics: [["Совпадения", number(state.count, 0)],
+      metrics: [["PnL · USDT / 1 BTC", mainPnl == null ? "—" : amount(mainPnl)],
+        ["Совпадения", number(state.count, 0) + " / " + number(state.required_matches, 0)],
         ["Включено", number(state.active_count, 0) + " / 41"],
         ["Вход", number(state.entry)], ["Stop Loss", number(state.sl)]],
-      footer: "Итоговая статистика основного бота доступна во вкладке «Журнал». Сделки здесь не создаются."
+      footer: "PnL рассчитан по сделкам основного бота в существующем журнале, без сделок AI."
     }));
     if (!state) systems.push(unavailable("Bitcoin · AI Аналитик", "Серверный сигнал AI недоступен"));
     else systems.push(card({

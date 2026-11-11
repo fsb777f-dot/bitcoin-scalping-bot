@@ -211,6 +211,10 @@
     margin-top:3px;font-variant-numeric:tabular-nums;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis
   }
+  .terminal-screen .tt-quick-meta{
+    display:block;font-size:9px;line-height:1.15;color:#8faac8;
+    margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+  }
   .terminal-screen .tt-quick-side{
     flex:0 0 auto;align-self:center;font-size:9px;font-weight:850;
     border:1px solid #29455a;border-radius:6px;padding:3px 5px;
