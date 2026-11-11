@@ -1,5 +1,5 @@
-import { evaluateTestStrategies, testRiskLevels, TEST_STRATEGIES } from "../test-module/strategies.js";
-import { loadMarketAnalysis, loadSmcCapitalMarket } from "../test-module/market-analysis.js";
+import { evaluateTestStrategies, testRiskLevels, settleTestTrade, TEST_STRATEGIES } from "../test-module/strategies.js";
+import { loadMarketAnalysis } from "../test-module/market-analysis.js";
 import { updateSmcPaper } from "../test-module/smc.js";
 
 const cors = {
@@ -31,12 +31,10 @@ async function db(env, path, init = {}) {
 }
 
 async function runTestScan(env) {
-  const [market, capitalSmc] = await Promise.all([
-    loadMarketAnalysis(), loadSmcCapitalMarket().catch(error => {
-      console.warn("SMC Capital.com data unavailable:", error?.message || String(error));
-      return { analysis: { source: "UNAVAILABLE" } };
-    })
-  ]);
+  // Load Capital.com once for consensus and SMC; unavailable data means no new
+  // trades, never silently substitute another exchange.
+  const market = await loadMarketAnalysis();
+  const capitalSmc = { ...market, analysis: { source: "Capital.com Demo" } };
   const { candles, price, analysis } = market;
   const candle = candles.at(-1);
   const [rows, existingState] = await Promise.all([
@@ -80,31 +78,29 @@ async function runTestScan(env) {
 
   const open = await db(env, "test_trades?status=eq.OPEN&select=*");
   for (const trade of open || []) {
-    const stopped = trade.side === "BUY" ? price <= Number(trade.sl) : price >= Number(trade.sl);
-    const targeted = trade.side === "BUY" ? price >= Number(trade.tp) : price <= Number(trade.tp);
-    if (!stopped && !targeted) continue;
-    const exit = stopped ? Number(trade.sl) : Number(trade.tp);
-    const pnl = trade.side === "BUY" ? exit - Number(trade.entry) : Number(trade.entry) - exit;
+    const settlement = settleTestTrade(trade, market.bid, market.ask);
+    if (!settlement) continue;
     await db(env, "test_trades?trade_key=eq." + encodeURIComponent(trade.trade_key), {
       method: "PATCH", headers: { Prefer: "return=minimal" },
       body: JSON.stringify({
-        exit, pnl, status: "CLOSED", result: stopped ? "SL" : "TP",
+        ...settlement, status: "CLOSED",
         updated_at: new Date().toISOString()
       })
     });
   }
 
+  const entry = consensusSide === "BUY" ? market.ask : consensusSide === "SELL" ? market.bid : null;
   const consensusLevels = consensusSide === "BUY" || consensusSide === "SELL"
-    ? testRiskLevels(consensusSide, price, candles, 2) : null;
+    ? testRiskLevels(consensusSide, entry, candles, 2, market.spread) : null;
   if (consensusSide !== "WAIT" && consensusLevels) {
     const existing = await db(env, "test_trades?strategy=eq.consensus&status=eq.OPEN&select=id&limit=1");
     if (!existing?.length) {
       await db(env, "test_trades?on_conflict=trade_key", {
         method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
         body: JSON.stringify({
-          trade_key: "test:consensus:1m:" + candle.time,
+          trade_key: "test:consensus:capital:1m:" + candle.time,
           strategy: "consensus", confirmations, timeframe: "1m", candle_time: candle.time, trade_time: Date.now(),
-          side: consensusSide, entry: price, sl: consensusLevels.sl, tp: consensusLevels.tp, exit: null, pnl: null,
+          side: consensusSide, entry, sl: consensusLevels.sl, tp: consensusLevels.tp, exit: null, pnl: null,
           status: "OPEN", result: null, updated_at: new Date().toISOString()
         })
       });
@@ -114,7 +110,7 @@ async function runTestScan(env) {
   await db(env, "test_state?on_conflict=id", {
     method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
     body: JSON.stringify({ id: 1, timeframe: "1m", price, signals: { ...signals, smc: analysis.smc.signal.side, consensus: consensusSide, confirmations,
-        consensus_entry: consensusLevels ? price : null,
+        consensus_entry: consensusLevels ? entry : null,
         consensus_sl: consensusLevels?.sl ?? null,
         consensus_tp: consensusLevels?.tp ?? null
       }, analysis, updated_at: new Date().toISOString() })

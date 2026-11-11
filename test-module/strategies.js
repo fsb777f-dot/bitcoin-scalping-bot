@@ -69,10 +69,24 @@ export function evaluateTestStrategies(candles) {
   return result;
 }
 
-export function testRiskLevels(side, entry, candles, rewardRisk = 2) {
-  const distance = atr(candles) * 1.2;
+export function testRiskLevels(side, entry, candles, rewardRisk = 2, spread = 0) {
+  // The stop must remain outside the executable bid/ask spread.
+  const distance = Math.max(atr(candles) * 1.2, spread * 3);
   if (!distance || !Number.isFinite(entry) || !["BUY", "SELL"].includes(side)) return null;
   return side === "BUY"
     ? { sl: entry - distance, tp: entry + distance * rewardRisk }
     : { sl: entry + distance, tp: entry - distance * rewardRisk };
+}
+
+export function settleTestTrade(trade, bid, ask) {
+  const buy = trade.side === "BUY";
+  const quote = buy ? Number(bid) : Number(ask);
+  const entry = Number(trade.entry), sl = Number(trade.sl), tp = Number(trade.tp);
+  if (!["BUY", "SELL"].includes(trade.side) || ![quote, entry, sl, tp].every(Number.isFinite)) return null;
+  const stopped = buy ? quote <= sl : quote >= sl;
+  const targeted = buy ? quote >= tp : quote <= tp;
+  if (!stopped && !targeted) return null;
+  // Stops fill at the worse available quote on a gap; targets use their limit.
+  const exit = stopped ? (buy ? Math.min(sl, quote) : Math.max(sl, quote)) : tp;
+  return { exit, pnl: buy ? exit - entry : entry - exit, result: stopped ? "SL" : "TP" };
 }
