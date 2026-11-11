@@ -1,6 +1,7 @@
 import { evaluateTestStrategies, testRiskLevels, settleTestTrade, TEST_STRATEGIES } from "../test-module/strategies.js";
 import { loadMarketAnalysis } from "../test-module/market-analysis.js";
 import { updateSmcPaper } from "../test-module/smc.js";
+import { updateBacktestPaper } from "../test-module/backtest-paper.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -75,6 +76,9 @@ async function runTestScan(env) {
 
   // SMC keeps its own virtual journal in test_state.analysis, independent of the 3-way consensus.
   analysis.smc = updateSmcPaper(existingState?.[0]?.analysis?.smc, capitalSmc);
+  // Additional independent paper run. The original three-strategy consensus and SMC remain unchanged.
+  analysis.backtest_paper = updateBacktestPaper(enabled.test_backtest,
+    existingState?.[0]?.analysis?.backtest_paper, market);
 
   const open = await db(env, "test_trades?status=eq.OPEN&select=*");
   for (const trade of open || []) {
@@ -145,7 +149,8 @@ export default {
       if (url.pathname === "/api/test-data" && request.method === "GET") return reply(await getTestData(env));
       if (url.pathname === "/api/test-settings" && request.method === "POST") {
         const body = await request.json();
-        const enabled = {};
+        const rows = await db(env, "test_settings?id=eq.1&select=enabled");
+        const enabled = { ...(rows?.[0]?.enabled || {}) };
         for (const id of ["brooks", "cameron", "smb"]) enabled[id] = body?.enabled?.[id] !== false;
         await db(env, "test_settings?on_conflict=id", {
           method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
