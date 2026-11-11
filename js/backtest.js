@@ -114,6 +114,23 @@ export function initBitcoinBacktest(getSettings, workerUrl) {
   const enabled = (getSettings()?.enabled_strategies || names.map(() => true)).slice();
   $("backtestTimeframe").value = ["1m", "5m", "15m"].includes(getSettings()?.timeframe) ? getSettings().timeframe : "1m";
   $("backtestRiskReward").value = String(getSettings()?.risk_reward || 2);
+  const minimumControl = $("backtestMinMatches");
+  let savedMinimum = 0;
+  try { savedMinimum = Number(localStorage.getItem("btc-backtest-min-matches")); } catch {}
+  const initialMinimum = savedMinimum || Number(getSettings()?.required_matches) || 3;
+  minimumControl.innerHTML = names.map((_, i) => `<option value="${i + 1}">${i + 1}</option>`).join("");
+  minimumControl.value = String(Math.max(1, Math.min(names.length, Math.trunc(initialMinimum))));
+  const updateMatchHint = () => {
+    const count = enabled.filter(Boolean).length;
+    const minimum = Number(minimumControl.value);
+    $("backtestMatchHint").textContent = `Выбрано ${count} из ${names.length} стратегий · нужно ${minimum} совпадений для BUY или SELL. `
+      + (minimum > count ? "При таком выборе основной не сможет открыть сделку." : "Настройки живого бота не меняются.");
+  };
+  minimumControl.addEventListener("change", () => {
+    try { localStorage.setItem("btc-backtest-min-matches", minimumControl.value); } catch {}
+    updateMatchHint();
+    $("backtestStatus").textContent = "Число совпадений изменено. Нажми «Запустить бэктест», чтобы пересчитать результат.";
+  });
   const strategyList = $("backtestStrategies");
   const showStrategies = outcomes => {
     const order = names.map((_, i) => i);
@@ -128,10 +145,12 @@ export function initBitcoinBacktest(getSettings, workerUrl) {
     }).join("");
   };
   showStrategies();
+  updateMatchHint();
   strategyList.addEventListener("change", e => {
     const i = Number(e.target.dataset.backtestStrategy);
     if (Number.isInteger(i) && i >= 0 && i < enabled.length) {
       enabled[i] = e.target.checked;
+      updateMatchHint();
       $("backtestStatus").textContent = "Выбор стратегий изменён. Нажми «Запустить бэктест», чтобы пересчитать общий сигнал.";
     }
   });
@@ -156,11 +175,12 @@ export function initBitcoinBacktest(getSettings, workerUrl) {
       status.textContent = "Рассчитываем 41 стратегию на устройстве…";
       // Yield once so the progress label becomes visible before the CPU-intensive calculation.
       await new Promise(resolve => setTimeout(resolve, 0));
-      const result = backtestBitcoin(history.candles, { enabled, minMatches: Number(getSettings()?.required_matches) || 3,
+      const result = backtestBitcoin(history.candles, { enabled, minMatches: Number(minimumControl.value),
         riskReward: Number($("backtestRiskReward").value) });
       $("backtestResults").innerHTML = summary(result.main) + summary(result.ai);
       showStrategies(result.perStrategy);
-      status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Журналы не менялись.`;
+      const zeroReason = result.main.total === 0 ? ` Основной: 0 сделок — не было ${minimumControl.value} совпадений среди ${enabled.filter(Boolean).length} выбранных стратегий.` : "";
+      status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Журналы не менялись.${zeroReason}`;
     } catch (e) { status.textContent = "Бэктест не выполнен: " + e.message; }
     finally { run.disabled = false; }
   });

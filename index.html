@@ -45,9 +45,11 @@
   <div class="backtest-controls">
     <label>Таймфрейм <select id="backtestTimeframe"><option value="1m">1 минута</option><option value="5m">5 минут</option><option value="15m">15 минут</option></select></label>
     <label>Риск / прибыль <select id="backtestRiskReward"><option value="1">1 : 1</option><option value="1.5">1 : 1,5</option><option value="2">1 : 2</option><option value="2.5">1 : 2,5</option><option value="3">1 : 3</option><option value="4">1 : 4</option></select></label>
+    <label>Минимум совпадений <select id="backtestMinMatches"></select></label>
     <button id="runBitcoinBacktest" type="button">Запустить бэктест</button>
   </div>
-  <p id="backtestStatus" class="notice">Выбери интервал и нажми «Запустить». Для основного бота применяется выбранное на рынке число совпадений.</p>
+  <p id="backtestMatchHint" class="notice"></p>
+  <p id="backtestStatus" class="notice">Выбери настройки и нажми «Запустить». Число совпадений здесь не влияет на работающий бот.</p>
   <div id="backtestResults" class="backtest-results"></div>
   <h3 class="subsection-title">Все 41 стратегии · независимые результаты</h3>
   <p class="notice">Галочки здесь влияют только на общий сигнал этого бэктеста, не на живые настройки. Исторический AI использует равные веса — это приблизительный тест, без подглядывания в будущую статистику. Издержки спреда учтены; комиссии и финансирование не моделируются.</p>
