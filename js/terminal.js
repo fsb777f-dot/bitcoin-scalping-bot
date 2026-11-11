@@ -83,6 +83,31 @@ function drawChart(id, dates, source) {
   $(id + "ChartAt").textContent = dateText(data.at(-1).time) + (source?.stale ? " · сохранённая история" : "");
 }
 
+// Visual-only cross-system pulse. BTC and Gold are different markets:
+// this describes source direction counts, NEVER an entry recommendation.
+export function computeTerminalPulse(state, gold, btcGpt, goldGpt, test, now = Date.now()) {
+  const states = [
+    { label: "Bitcoin", side: state?.scan_ok === false ? null : state?.side, updated: state?.updated_at },
+    { label: "Bitcoin AI", side: state?.ai_enabled === true && state?.scan_ok !== false ? state.ai_side : null, updated: state?.updated_at },
+    { label: "Gold AI", side: gold?.state?.side, updated: gold?.state?.updated_at },
+    { label: "ЧПТ BTC", side: btcGpt?.state?.side, updated: btcGpt?.state?.updated_at },
+    { label: "ЧПТ Gold", side: goldGpt?.state?.side, updated: goldGpt?.state?.updated_at },
+    { label: "Тест", side: test?.state?.signals?.consensus, updated: test?.state?.updated_at }
+  ];
+  const eligible = states.filter(source => source.label !== "Bitcoin AI" || state?.ai_enabled === true);
+  const fresh = eligible.filter(source => {
+    const timestamp = Date.parse(source.updated || "");
+    return ["BUY", "SELL", "WAIT"].includes(source.side)
+      && Number.isFinite(timestamp) && timestamp <= now + 60000
+      && now - timestamp <= 20 * 60000;
+  });
+  const buy = fresh.filter(source => source.side === "BUY").length;
+  const sell = fresh.filter(source => source.side === "SELL").length;
+  const wait = fresh.filter(source => source.side === "WAIT").length;
+  const side = fresh.length === 0 ? "WAIT" : buy > sell ? "BUY" : sell > buy ? "SELL" : "WAIT";
+  return { side, buy, sell, wait, available: fresh.length, expected: eligible.length };
+}
+
 export function initTradingTerminal(supabase) {
   if (!$("terminal-section")) return { activate() {}, deactivate() {} };
   let active = false, timer = null, busy = false, chartFetchedAt = 0, chartBusy = false;
@@ -169,6 +194,22 @@ export function initTradingTerminal(supabase) {
       setSignal("ttTest", test.state.signals?.consensus || "WAIT",
         number(votes.length, 0) + "/3 подтверждения · " + dateText(test.state.updated_at));
     } else setSignal("ttTest", null, "Тестовый Worker недоступен");
+  }
+
+  function updateBrain(state, gold, btcGpt, goldGpt, test) {
+    const pulse = computeTerminalPulse(state, gold, btcGpt, goldGpt, test);
+    const orb = $("ttBrain");
+    const signal = $("ttBrainSide");
+    if (!orb || !signal) return;
+    signal.textContent = pulse.side;
+    signal.className = directionClass(pulse.side);
+    orb.classList.remove("tt-brain-buy", "tt-brain-sell", "tt-brain-wait", "tt-brain-idle");
+    orb.classList.add(pulse.available === 0 ? "tt-brain-idle" : "tt-brain-" + pulse.side.toLowerCase());
+    $("ttBrainCoverage").textContent = pulse.available + "/" + pulse.expected + " источников";
+    $("ttBrainVotes").textContent = "BUY " + pulse.buy + " · SELL " + pulse.sell + " · WAIT " + pulse.wait;
+    $("ttBrainNote").textContent = pulse.available === 0
+      ? "Нет свежих сигналов; ожидание подключения."
+      : "Сводка BTC + Gold. Не сигнал для открытия сделки.";
   }
 
   function quickSummary(state, gold, btcGpt, goldGpt, test) {
@@ -373,6 +414,7 @@ export function initTradingTerminal(supabase) {
       const state = value("bitcoin"), gold = value("gold"), test = value("test");
       sourceStrip(entries);
       signalSummary(state, gold, test);
+      updateBrain(state, gold, value("btcGpt"), value("goldGpt"), test);
       systemCards(state, gold, value("btcGpt"), value("goldGpt"), test);
       quickSummary(state, gold, value("btcGpt"), value("goldGpt"), test);
       heatmap(state);
