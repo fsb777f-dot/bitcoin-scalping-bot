@@ -9,7 +9,8 @@ const $=id=>document.getElementById(id);
 const fmt=n=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n))?Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";
 const WORKER="https://bitcoin-scalping-bot.fsb777f.workers.dev";
 let tf="1m",chart=createMarketChart($("chart")),settings=null,serverState=null,polling=false,previousPrice=null;
-let aiJournalLoading=false;
+let aiJournalLoading=false,demoJournalLoading=false,demoRows=[],demoShown=50;
+const safe=s=>String(s??"—").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
 const journal=createJournal(supabase);
 initGptStrategyUi(WORKER);
 const terminal=initTradingTerminal(supabase,journal);
@@ -74,7 +75,7 @@ async function loadAiJournal(){
   for(let offset=0;;offset+=1000){
    const {data,error}=await supabase.from("trades")
     .select("*")
-    .like("trade_key","ai:%").order("trade_time",{ascending:false})
+    .like("trade_key","ai:%").eq("execution_mode","VIRTUAL").order("trade_time",{ascending:false})
     .range(offset,offset+999);
    if(error)throw error;
    rows.push(...(data||[]));
@@ -106,6 +107,59 @@ async function loadAiJournal(){
  }catch(error){
   $("aiJournalNote").textContent="Не удалось загрузить журнал AI: "+error.message;
  }finally{aiJournalLoading=false}
+}
+function renderDemoJournal(){
+ const mode=$("demoJournalMode").value;
+ const rows=mode==="ALL"?demoRows:demoRows.filter(t=>t.execution_mode===mode);
+ const closed=rows.filter(t=>t.status==="CLOSED"),open=rows.filter(t=>t.status==="OPEN");
+ const decided=closed.filter(t=>t.pnl!=null&&Number.isFinite(Number(t.pnl)));
+ const confirmed=decided.filter(t=>t.demo_pnl_source!=="ESTIMATE"),estimated=decided.filter(t=>t.demo_pnl_source==="ESTIMATE");
+ const wins=decided.filter(t=>Number(t.pnl)>0).length,losses=decided.filter(t=>Number(t.pnl)<0).length;
+ const floating=open.filter(t=>t.demo_open_pnl!=null&&Number.isFinite(Number(t.demo_open_pnl)));
+ const realized=confirmed.reduce((n,t)=>n+Number(t.pnl),0),estimate=estimated.reduce((n,t)=>n+Number(t.pnl),0),upl=floating.reduce((n,t)=>n+Number(t.demo_open_pnl),0);
+ const set=(id,n)=>$(id).textContent=String(n);
+ set("demoTotal",rows.length);set("demoOpen",open.length);set("demoClosed",closed.length);
+ set("demoWins",wins);set("demoLosses",losses);
+ set("demoWinRate",wins+losses?(wins/(wins+losses)*100).toFixed(1)+"%":"—");
+ for(const [id,value,count] of [["demoRealizedPnl",realized,confirmed.length],["demoEstimatedPnl",estimate,estimated.length],["demoFloatingPnl",upl,floating.length]]){
+  $(id).textContent=count?(value>=0?"+":"")+fmt(value)+" USD":"—";
+  $(id).className=value>0&&count?"green":value<0&&count?"red":"";
+ }
+ const unknown=closed.length-decided.length;
+ $("demoJournalNote").textContent="Capital.com DEMO · только подтверждённые брокером ордера. "
+  +(unknown?"У "+unknown+" закрытых сделок нет подтверждённого PnL; они не включены в итог. ":"")
+  +(estimated.length?"Оценка по ценам для "+estimated.length+" сделок — без комиссий и финансирования, не брокерский итог. ":"")
+  +(open.length!==floating.length?"Текущий PnL получен для "+floating.length+" из "+open.length+" открытых. ":"")
+  +"Суммы в USD по фактическому размеру сделки; виртуальный PnL считается отдельно. Данные обновляются при серверном сканировании.";
+ $("demoJournalList").innerHTML=rows.length?rows.slice(0,demoShown).map(t=>{
+  const isOpen=t.status==="OPEN",pnl=isOpen?t.demo_open_pnl:t.pnl;
+  const time=Number(t.trade_time)?new Date(Number(t.trade_time)).toLocaleString("ru-RU"):"—";
+  const closedAt=t.demo_closed_at?new Date(t.demo_closed_at).toLocaleString("ru-RU"):null;
+  const amount=pnl==null?"—":(t.demo_pnl_source==="ESTIMATE"?"≈":"")+(Number(pnl)>=0?"+":"")+fmt(pnl)+" USD";
+  const result=isOpen?"ОТКРЫТА":pnl==null?"ЗАКРЫТА · PnL НЕТ":Number(pnl)>0?"ПРИБЫЛЬ":Number(pnl)<0?"УБЫТОК":"БЕЗУБЫТОК";
+  const css=isOpen?"yellow":pnl==null?"muted":Number(pnl)>0?"green":Number(pnl)<0?"red":"muted";
+  const id=String(t.capital_deal_id||"");
+  return '<div class="ai-trade-row"><div class="ai-trade-top"><b class="'+(t.side==="BUY"?"green":"red")+'">'+safe(t.side)+'</b><span class="'+css+'">'+result+'</span><span class="demo-source">'+(t.execution_mode==="AI_DEMO"?"AI DEMO":"Основной DEMO")+'</span><time>'+safe(time)+'</time></div>'
+   +'<div class="demo-trade-values"><span>Объём BTC <b>'+(t.demo_size==null?"—":Number(t.demo_size).toLocaleString("en-US",{maximumFractionDigits:8}))+'</b></span><span>Вход <b>'+fmt(t.entry)+'</b></span><span>Stop Loss <b>'+fmt(t.sl)+'</b></span>'
+   +'<span>Выход <b>'+fmt(t.exit)+'</b></span><span>'+ (isOpen?"Текущий PnL":"Итоговый PnL")+' <b class="'+css+'">'+amount+'</b></span><span>Закрыто <b>'+safe(closedAt)+'</b></span></div>'
+   +'<div class="demo-deal-id">Capital.com Deal ID: '+safe(id||"—")+'</div></div>';
+ }).join(""):'<p class="notice">Подтверждённых DEMO-сделок пока нет. После первого открытого ордера Capital.com он появится здесь.</p>';
+ $("demoShowMore").hidden=rows.length<=demoShown;
+}
+async function loadDemoJournal(){
+ if(demoJournalLoading)return;demoJournalLoading=true;
+ try{
+  const rows=[];
+  for(let offset=0;;offset+=1000){
+   const {data,error}=await supabase.from("trades").select("*")
+    .in("execution_mode",["MAIN_DEMO","AI_DEMO"]).order("trade_time",{ascending:false}).range(offset,offset+999);
+   if(error)throw error;
+   rows.push(...(data||[]));
+   if(!data||data.length<1000)break;
+  }
+  demoRows=rows;renderDemoJournal();
+ }catch(error){$("demoJournalNote").textContent="Ошибка загрузки DEMO-журнала: "+error.message}
+ finally{demoJournalLoading=false}
 }
 async function loadSettings(){
  const {data,error}=await supabase.from("bot_settings").select("*").eq("id",1).maybeSingle();
@@ -247,7 +301,7 @@ $("clearAiJournal").addEventListener("click",async()=>{
  if(!confirm("Очистить только журнал AI? Все виртуальные сделки AI, включая открытые, будут удалены. Их дальнейшее закрытие отслеживаться не будет. История обучения AI по этим сделкам тоже начнётся заново. Обычный журнал и тестовый модуль не затрагиваются."))return;
  button.disabled=true;button.textContent="Очищаем…";
  try{
-  const {error}=await supabase.from("trades").delete().like("trade_key","ai:%");
+  const {error}=await supabase.from("trades").delete().like("trade_key","ai:%").eq("execution_mode","VIRTUAL");
   if(error)throw error;
   await loadAiJournal();
   $("aiJournalNote").textContent="Журнал AI очищен. Новые виртуальные сделки будут записываться с ближайших сканирований.";
@@ -257,12 +311,16 @@ $("clearAiJournal").addEventListener("click",async()=>{
  }finally{button.disabled=false;button.textContent="Очистить журнал AI"}
 });
 $("clearJournal").addEventListener("click",async()=>{
- if(confirm("Удалить общий журнал на всех устройствах?"))try{await journal.clear()}catch(e){alert("Ошибка: "+e.message)}
+ if(confirm("Удалить только виртуальные сделки? История Capital.com DEMO останется без изменений."))try{await journal.clear()}catch(e){alert("Ошибка: "+e.message)}
 });
+$("refreshDemoJournal").addEventListener("click",loadDemoJournal);
+$("demoJournalMode").addEventListener("change",()=>{demoShown=50;renderDemoJournal()});
+$("demoShowMore").addEventListener("click",()=>{demoShown+=50;renderDemoJournal()});
 document.querySelectorAll(".nav [data-view]").forEach(b=>b.addEventListener("click",()=>{
  document.querySelectorAll("main [data-screen]").forEach(s=>s.hidden=s.dataset.screen!==b.dataset.view);
  document.querySelectorAll(".nav [data-view]").forEach(x=>x.classList.toggle("active",x===b));
  if(b.dataset.view==="terminal")terminal.activate();else terminal.deactivate();
+ if(b.dataset.view==="journal")loadDemoJournal();
 }));
 (async()=>{
  try{
@@ -278,9 +336,11 @@ document.querySelectorAll(".nav [data-view]").forEach(b=>b.addEventListener("cli
    $("cloudStatus").textContent="Настройки основного бота применены из бэктеста";
   });
   await loadAiJournal();
+  await loadDemoJournal();
   await startChart();
   await pollState();
   setInterval(pollState,5000);
+  setInterval(()=>{if(!$("journal-section").hidden)loadDemoJournal()},30000);
   $("cloudStatus").textContent="Облачный журнал и серверные настройки подключены";
  }catch(e){console.error(e);$("cloudStatus").textContent="Ошибка облачного подключения: "+e.message;status(false)}
 })();

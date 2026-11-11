@@ -181,14 +181,33 @@ export async function capitalDemoReconcile(env, trades) {
   const positions = Array.isArray(result.data?.positions) ? result.data.positions : [];
   const openById = new Map(positions.map(item => [item.position?.dealId, item.position]).filter(([id]) => id));
   const summary = { checked: 0, stillOpen: 0, closed: 0, unresolved: 0 };
+  let transactions = null;
+  const getTransactions = async () => {
+    if (transactions !== null) return transactions;
+    try {
+      const history = await request("/history/transactions?lastPeriod=86400&type=TRADE", auth);
+      transactions = Array.isArray(history.data?.transactions) ? history.data.transactions : [];
+    } catch (error) {
+      console.warn("Capital.com trade amounts unavailable", error?.message || String(error));
+      transactions = [];
+    }
+    return transactions;
+  };
 
   for (const trade of trades || []) {
     const dealId = trade.capital_deal_id;
     if (!dealId) continue;
     summary.checked++;
+    if (trade.status === "CLOSED") {
+      const settlement = capitalDemoSettlement(trade, await getTransactions(), finiteBrokerNumber(trade.exit));
+      if (settlement.pnl !== null) await dbPatchTrade(env, trade.trade_key, settlement);
+      else summary.unresolved++;
+      continue;
+    }
     const live = openById.get(dealId);
     if (live) {
-      await dbPatchTrade(env, trade.trade_key, { capital_status: "OPEN" });
+      const snapshot = capitalDemoPositionSnapshot(live);
+      await dbPatchTrade(env, trade.trade_key, { capital_status: "OPEN", ...snapshot });
       summary.stillOpen++;
       continue;
     }
@@ -211,31 +230,77 @@ export async function capitalDemoReconcile(env, trades) {
     }
     const closeReason = closeEvent.source === "TP" ? "TP"
       : closeEvent.source === "SL" ? "SL" : "BROKER_CLOSED";
+    // Match an actual broker cash movement by the permanent deal ID or
+    // reference. Never treat a different account transaction as this trade's PnL.
+    const closePrice = finiteBrokerNumber(closeEvent.details?.closingLevel ?? closeEvent.details?.closePrice
+      ?? closeEvent.details?.level ?? closeEvent.details?.price ?? closeEvent.level);
+    const settlement = capitalDemoSettlement(trade, await getTransactions(), closePrice);
+    const time = closeEvent.dateUTC || closeEvent.date || new Date().toISOString();
     await dbPatchTrade(env, trade.trade_key, {
       status: "CLOSED",
       result: closeReason,
       capital_status: "CLOSED",
-      exit: null,
-      pnl: null
+      demo_open_pnl: null,
+      demo_closed_at: /(?:Z|[+-]\d\d:\d\d)$/.test(time) ? time : time + "Z",
+      exit: closePrice,
+      ...settlement
     });
     summary.closed++;
   }
   return summary;
 }
 
+const finiteBrokerNumber = value => value == null || value === "" || !Number.isFinite(Number(value)) ? null : Number(value);
+
+export function capitalDemoPositionSnapshot(position) {
+  return {
+    ...(finiteBrokerNumber(position.level) !== null ? { entry: Number(position.level) } : {}),
+    ...(finiteBrokerNumber(position.size) !== null ? { demo_size: Number(position.size) } : {}),
+    demo_open_pnl: finiteBrokerNumber(position.upl)
+  };
+}
+
+export function capitalDemoSettlement(trade, transactions, closePrice = null) {
+  const refs = [trade.capital_deal_id, trade.capital_deal_reference].filter(Boolean).map(String);
+  const match = transactions.find(tx => tx.transactionType === "TRADE"
+    && tx.status === "PROCESSED" && tx.currency === "USD"
+    && (refs.includes(String(tx.dealId || "")) || refs.includes(String(tx.reference || ""))));
+  // Capital.com calls the balance-changing transaction amount `size`.
+  // If there is no exact transaction reference, its PnL remains unknown.
+  const pnl = finiteBrokerNumber(match?.size);
+  if (pnl !== null) return { pnl, demo_pnl_source: "CAPITAL_TRADE" };
+  const entry = finiteBrokerNumber(trade.entry), size = finiteBrokerNumber(trade.demo_size);
+  if (entry !== null && size !== null && size > 0 && closePrice !== null
+    && (trade.side === "BUY" || trade.side === "SELL")) {
+    // Indicative USD result for BTC quantity, excludes financing and fees.
+    const estimate = (closePrice - entry) * size * (trade.side === "BUY" ? 1 : -1);
+    return { pnl: Math.round(estimate * 100) / 100, demo_pnl_source: "ESTIMATE" };
+  }
+  return { pnl: null, demo_pnl_source: null };
+}
+
 // Keep database writes local to the worker; Capital reconciliation itself is read-only.
 async function dbPatchTrade(env, tradeKey, patch) {
   const base = (env.SUPABASE_URL || "https://pycdhpsmxhmvuyqerotb.supabase.co").replace(/\/+$/, "");
-  const response = await fetch(base + "/rest/v1/trades?trade_key=eq." + encodeURIComponent(tradeKey), {
-    method: "PATCH",
-    headers: {
+  const headers = {
       apikey: env.SUPABASE_SECRET_KEY,
       Authorization: "Bearer " + env.SUPABASE_SECRET_KEY,
       "Content-Type": "application/json",
       Prefer: "return=minimal"
-    },
-    body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() })
-  });
+    };
+  const url = base + "/rest/v1/trades?trade_key=eq." + encodeURIComponent(tradeKey);
+  const send = payload => fetch(url, { method: "PATCH", headers, body: JSON.stringify({ ...payload, updated_at: new Date().toISOString() }) });
+  let response = await send(patch);
+  // The live Worker must keep reconciling existing trades while the additive
+  // Supabase migration is being applied.
+  if (response.status === 400 && Object.keys(patch).some(k => k.startsWith("demo_"))) {
+    const message = await response.clone().text();
+    if (/PGRST204|column.*does not exist|schema cache/i.test(message)) {
+      const legacy = Object.fromEntries(Object.entries(patch).filter(([k]) => !k.startsWith("demo_")));
+      if (patch.demo_pnl_source === "ESTIMATE") legacy.pnl = null;
+      response = await send(legacy);
+    }
+  }
   if (!response.ok) throw new Error("Supabase trade sync " + response.status + ": " + (await response.text()).slice(0, 300));
 }
 

@@ -310,7 +310,12 @@ async function patchTrade(env, key, patch) {
   });
 }
 async function syncCapitalDemoTrades(env) {
-  const trades = await db(env, "trades?status=eq.OPEN&execution_mode=in.(MAIN_DEMO,AI_DEMO)&capital_deal_id=not.is.null&select=trade_key,capital_deal_id,execution_mode");
+  const trades = await db(env, "trades?status=eq.OPEN&execution_mode=in.(MAIN_DEMO,AI_DEMO)&capital_deal_id=not.is.null&select=*") || [];
+  // Older closes recorded without PnL can still be resolved while the broker's
+  // one-day transaction history is available.
+  const pending = await db(env, "trades?status=eq.CLOSED&pnl=is.null&execution_mode=in.(MAIN_DEMO,AI_DEMO)&capital_deal_id=not.is.null&trade_time=gte."
+    + (Date.now() - 86400000) + "&select=*&order=trade_time.desc&limit=30");
+  trades.push(...(pending || []));
   if (!trades?.length) return { checked: 0, stillOpen: 0, closed: 0, unresolved: 0 };
   return capitalDemoReconcile(env, trades);
 }
@@ -368,12 +373,22 @@ async function openDemoTradeOnce(env, trade, executionMode, size) {
     direction: trade.side, size, stopLevel: trade.sl,
     trailingEnabled: executionMode === "MAIN_DEMO" || executionMode === "AI_DEMO"
   });
-  await insertTradeOnce(env, {
+  const record = {
     ...trade, execution_mode: executionMode,
+    entry: order.level ?? trade.entry,
     capital_deal_id: order.dealId,
     capital_deal_reference: order.dealReference,
-    capital_status: order.status
-  });
+    capital_status: order.status,
+    demo_size: order.size
+  };
+  try {
+    await insertTradeOnce(env, record);
+  } catch (error) {
+    // A missing optional migration must not lose an already accepted broker order.
+    if (!/PGRST204|column.*does not exist|schema cache/i.test(String(error))) throw error;
+    const { demo_size, ...legacyRecord } = record;
+    await insertTradeOnce(env, legacyRecord);
+  }
   return { duplicate: false, dealId: order.dealId };
 }
 async function getPreviousState(env) {
