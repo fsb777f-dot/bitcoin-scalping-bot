@@ -50,6 +50,16 @@ async function getSettings(env) {
     tradeSize: Number(s.trade_size) > 0 ? Number(s.trade_size) : null
   };
 }
+async function getAiBacktestWhitelist(env) {
+  try {
+    const rows = await db(env, "test_settings?id=eq.1&select=enabled");
+    const list = rows?.[0]?.enabled?.ai_backtest?.enabled;
+    if (Array.isArray(list) && list.length === names.length && list.every(v => typeof v === "boolean") && list.some(Boolean)) return list;
+  } catch (error) {
+    console.warn("Could not load applied AI strategy whitelist; defaulting to all strategies", error?.message || String(error));
+  }
+  return names.map(() => true);
+}
 async function bybitRequest(path) {
   let response;
   try {
@@ -444,7 +454,7 @@ async function runScan(env) {
       }));
     }
   }
-  let ai = settings.aiEnabled ? aiDecision(results, names.map(() => true), performance) : null;
+  let ai = settings.aiEnabled ? aiDecision(results, await getAiBacktestWhitelist(env), performance) : null;
   const candle = candles[candles.length - 1];
   // Match the earlier paper-trading behavior: AI may enter again on each new candle.
   const newCandle = candle.time > Number(previousState.candle_time || 0);
@@ -608,6 +618,49 @@ export default {
       } catch (e) {
         if (saved) return reply({ ...saved, stale: true, warning: "Capital.com временно ограничил запросы; показана сохранённая история." });
         return reply({ error: e?.message || "Capital.com history unavailable" }, 502);
+      }
+    }
+    if (url.pathname === "/api/backtest-apply" && request.method === "POST") {
+      const applied = [];
+      try {
+        if (!env.EXECUTION_CONTROL_PIN) return reply({ error: "PIN управления не настроен на сервере." }, 503);
+        if (request.headers.get("X-Execution-Control") !== env.EXECUTION_CONTROL_PIN) return reply({ error: "Неверный PIN управления." }, 401);
+        const { targets, preset } = await request.json();
+        const selected = targets && ["main", "ai", "test"].some(key => targets[key] === true);
+        const valid = preset && Array.isArray(preset.enabled) && preset.enabled.length === names.length
+          && preset.enabled.every(v => typeof v === "boolean") && preset.enabled.some(Boolean)
+          && ["1m", "5m", "15m"].includes(preset.timeframe)
+          && [1, 1.5, 2, 2.5, 3, 4].includes(preset.riskReward)
+          && Number.isInteger(preset.minMatches) && preset.minMatches >= 1 && preset.minMatches <= names.length;
+        if (!selected || !valid || Object.keys(targets).some(key => !["main", "ai", "test"].includes(key))) {
+          return reply({ error: "Некорректный выбор стратегий или получателей бэктеста." }, 400);
+        }
+        const stamp = new Date().toISOString();
+        if (targets.ai || targets.test) {
+          const rows = await db(env, "test_settings?id=eq.1&select=enabled");
+          const stored = rows?.[0]?.enabled;
+          const saved = stored && typeof stored === "object" && !Array.isArray(stored) ? { ...stored } : {};
+          if (targets.ai) saved.ai_backtest = { enabled: preset.enabled, applied_at: stamp };
+          if (targets.test) saved.test_backtest = { ...preset, applied_at: stamp };
+          await db(env, "test_settings?on_conflict=id", {
+            method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+            body: JSON.stringify({ id: 1, enabled: saved, updated_at: stamp })
+          });
+          if (targets.ai) applied.push("ai");
+          if (targets.test) applied.push("test");
+        }
+        if (targets.main) {
+          await db(env, "bot_settings?id=eq.1", {
+            method: "PATCH", headers: { Prefer: "return=minimal" },
+            body: JSON.stringify({ timeframe: preset.timeframe,
+              enabled_strategies: preset.enabled, required_matches: preset.minMatches,
+              risk_reward: preset.riskReward, updated_at: stamp })
+          });
+          applied.push("main");
+        }
+        return reply({ ok: true, applied });
+      } catch (error) {
+        return reply({ error: "Ошибка применения: " + (error?.message || String(error)), applied }, 500);
       }
     }
     if (url.pathname === "/api/execution-mode" && request.method === "POST") {

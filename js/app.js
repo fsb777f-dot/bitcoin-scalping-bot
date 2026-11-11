@@ -263,7 +263,15 @@ document.querySelectorAll(".nav [data-view]").forEach(b=>b.addEventListener("cli
  try{
   await journal.init();
   await loadSettings();
-  initBitcoinBacktest(()=>settings,WORKER);
+  initBitcoinBacktest(()=>settings,WORKER,async preset=>{
+   settings.enabled_strategies=preset.enabled.slice();
+   settings.required_matches=preset.minMatches;
+   settings.risk_reward=preset.riskReward;
+   settings.timeframe=preset.timeframe;
+   tf=preset.timeframe;
+   syncControls();renderStrategies();await startChart();
+   $("cloudStatus").textContent="Настройки основного бота применены из бэктеста";
+  });
   await loadAiJournal();
   await startChart();
   await pollState();

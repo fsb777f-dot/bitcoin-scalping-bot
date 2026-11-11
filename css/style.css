@@ -146,6 +146,13 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 .backtest-strategy input{accent-color:var(--green);width:17px;height:17px;grid-row:span 2}
 .backtest-strategy span{font-weight:700}
 .backtest-strategy small{font-size:10px;overflow-wrap:anywhere}
+.backtest-apply{margin-top:19px;padding:15px;background:#0c1320;border:1px solid var(--line);border-radius:11px}
+.backtest-apply h3{margin:0 0 9px;font-size:15px}
+.backtest-apply-targets{display:flex;gap:12px;flex-wrap:wrap;margin:13px 0}
+.backtest-apply-targets label{display:flex;gap:7px;align-items:center;border:1px solid var(--line);padding:10px 12px;border-radius:9px;cursor:pointer}
+.backtest-apply-targets input{accent-color:var(--green);width:18px;height:18px}
+.backtest-apply button{padding:11px 18px;background:#20314d;border-color:#5476a8}
+.backtest-apply button:disabled{opacity:.45;cursor:not-allowed}
 @media(max-width:650px){.backtest-results,.backtest-strategies{grid-template-columns:1fr}}
 
 /* AI journal controls and expanded history */

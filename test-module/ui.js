@@ -42,9 +42,39 @@ function renderSmc(smc) {
     '</span></div>').join("") : '<p class="notice">SMC ищет подтверждённые сигналы. Пока сделок нет.</p>';
 }
 
+function renderBacktestPaper(preset, paper) {
+  if (!preset) {
+    $("testBacktestCard").innerHTML = '<p class="notice">Комбинация пока не применена. Выбери стратегии в «Бэктесте», проверь результат и отметь «Тест» → «Применить».</p>';
+    $("testBacktestTradeList").innerHTML = "";
+    return;
+  }
+  const stats = paper?.stats || {}, wins = Number(stats.wins) || 0, losses = Number(stats.losses) || 0;
+  const total = wins + losses, pnl = Number(stats.pnl) || 0, side = paper?.side || "WAIT";
+  const selected = Array.isArray(preset.enabled) ? preset.enabled.filter(Boolean).length : 0;
+  $("testBacktestCard").innerHTML = '<article class="test-card"><div class="test-card-head"><div><b>41 стратегия · выбранная комбинация</b>' +
+    '<small>' + selected + ' из 41 · ' + preset.timeframe + ' · риск 1:' + preset.riskReward +
+    ' · минимум ' + preset.minMatches + ' совпадения · только виртуально</small></div><b class="test-signal ' +
+    (side === "BUY" ? "green" : side === "SELL" ? "red" : "yellow") + '">' + side + '</b></div>' +
+    '<div class="test-confluence">Подтверждений: <b>' + (paper?.count || 0) +
+    '</b> · ' + (paper ? 'Сканирование работает независимо от основной системы' : 'Ожидаем первое сканирование тестового Worker') + '</div>' +
+    '<div class="test-stats"><span>Всего <b>' + (Number(stats.total) || 0) + '</b></span><span>Открыто <b>' +
+    (paper?.openTrades?.length || 0) + '</b></span><span>Плюс <b class="green">' + wins + '</b></span><span>Минус <b class="red">' +
+    losses + '</b></span><span>Winrate <b>' + (total ? (100 * wins / total).toFixed(1) + '%' : '—') +
+    '</b></span><span>Закрытый PnL · $/BTC <b class="' + (pnl > 0 ? 'green' : pnl < 0 ? 'red' : '') + '">' + fmt(pnl) +
+    '</b></span></div><p class="notice">После достижения цели TP позиция не закрывается: стоп переносится на TP и сопровождает цену. Спред включён; комиссии и финансирование не моделируются.</p></article>';
+  const trades = [...(paper?.openTrades || []).slice().reverse(), ...(paper?.recentClosed || [])].slice(0, 30);
+  $("testBacktestTradeList").innerHTML = trades.length ? trades.map(t =>
+    '<div class="test-trade"><b>Комбинация</b><span class="' + (t.side === 'BUY' ? 'green' : 'red') + '">' + t.side + '</span>' +
+    '<span>Вход ' + fmt(t.entry) + '</span><span>SL ' + fmt(t.sl) + '</span><span>Цель TP ' + fmt(t.initial_tp) + '</span>' +
+    '<span>' + (t.status === 'OPEN' ? (t.trailing_active ? 'ОТКРЫТА · стоп в прибыли' : 'ОТКРЫТА')
+      : (Number(t.pnl) > 0 ? 'ПРИБЫЛЬ' : Number(t.pnl) < 0 ? 'УБЫТОК' : 'БЕЗУБЫТОК') + ' · ' + fmt(t.pnl)) +
+    '</span></div>').join('') : '<p class="notice">Виртуальных сделок ещё нет. Ожидаем новый сигнал после применения.</p>';
+}
+
 function render(data) {
   if (data.settings?.enabled) enabled = { ...enabled, ...data.settings.enabled };
   renderSmc(data.state?.analysis?.smc);
+  renderBacktestPaper(data.settings?.enabled?.test_backtest, data.state?.analysis?.backtest_paper);
   const signals = data.state?.signals || {};
   const trades = (data.trades || []).filter(t => t.strategy === "consensus");
   const side = signals.consensus || "WAIT";
