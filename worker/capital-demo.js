@@ -156,7 +156,7 @@ export async function capitalDemoMarketBundle(env) {
 }
 
 
-async function capitalDemoAuth(env) {
+export async function capitalDemoAuth(env) {
   if (!env.CAPITAL_API_KEY || !env.CAPITAL_IDENTIFIER || !env.CAPITAL_PASSWORD) {
     throw new Error("Capital.com Demo secrets are incomplete");
   }
