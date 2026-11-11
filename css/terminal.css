@@ -330,3 +330,50 @@
 @media(prefers-reduced-motion:reduce){
   .terminal-screen .tt-brain-halo,.terminal-screen .tt-brain-sphere{animation:none}
 }
+
+
+/* iPhone overview: use the formerly empty lower space for a larger AI CORE.
+   Flex growth consumes only unused space and keeps all existing cards visible. */
+@media (max-width:610px){
+  .terminal-screen .tt-pane[data-tt-pane="overview"].is-active > .tt-brain{
+    flex:1 1 auto;
+    min-height:66px;
+    max-height:none;
+    margin-top:6px;
+    padding:5px 10px;
+    gap:10px;
+  }
+  .terminal-screen .tt-pane[data-tt-pane="overview"]{
+    --tt-brain-size:clamp(55px, calc(100dvh - 795px), 170px);
+  }
+  .terminal-screen .tt-pane[data-tt-pane="overview"] .tt-brain-visual{
+    width:var(--tt-brain-size);
+    height:var(--tt-brain-size);
+    flex:0 0 var(--tt-brain-size);
+  }
+  .terminal-screen .tt-pane[data-tt-pane="overview"] .tt-brain-sphere{
+    width:77%;height:77%;
+  }
+  .terminal-screen .tt-pane[data-tt-pane="overview"] .tt-brain-halo{
+    inset:9%;
+  }
+  .terminal-screen .tt-pane[data-tt-pane="overview"] .tt-brain-halo-two{
+    inset:1%;
+  }
+  .terminal-screen .tt-pane[data-tt-pane="overview"] .tt-brain-sphere::before{
+    inset:17%;
+  }
+  .terminal-screen .tt-pane[data-tt-pane="overview"] .tt-brain-sphere span{
+    font-size:clamp(11px, calc(var(--tt-brain-size) * .125), 22px);
+  }
+}
+@media (min-width:400px) and (max-width:610px) and (min-height:880px){
+  .terminal-screen .tt-pane[data-tt-pane="overview"] .tt-brain-eyebrow{font-size:10px}
+  .terminal-screen .tt-pane[data-tt-pane="overview"] .tt-brain-line strong{font-size:24px}
+  .terminal-screen .tt-pane[data-tt-pane="overview"] .tt-brain-votes{font-size:12px}
+  .terminal-screen .tt-pane[data-tt-pane="overview"] .tt-brain-caption{font-size:10px}
+}
+/* Short screens keep the previous compact orb size to prevent clipping. */
+@media (max-width:610px) and (max-height:780px){
+  .terminal-screen .tt-pane[data-tt-pane="overview"]{--tt-brain-size:55px}
+}
