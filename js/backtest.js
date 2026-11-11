@@ -123,7 +123,7 @@ export function initBitcoinBacktest(getSettings, workerUrl) {
   const updateMatchHint = () => {
     const count = enabled.filter(Boolean).length;
     const minimum = Number(minimumControl.value);
-    $("backtestMatchHint").textContent = `Выбрано ${count} из ${names.length} стратегий · нужно ${minimum} совпадений для BUY или SELL. `
+    $("backtestMatchHint").textContent = `Выбрано ${count} из ${names.length} стратегий · порог BUY/SELL: ${minimum} одинаковых сигналов. `
       + (minimum > count ? "При таком выборе основной не сможет открыть сделку." : "Настройки живого бота не меняются.");
   };
   minimumControl.addEventListener("change", () => {
@@ -179,7 +179,7 @@ export function initBitcoinBacktest(getSettings, workerUrl) {
         riskReward: Number($("backtestRiskReward").value) });
       $("backtestResults").innerHTML = summary(result.main) + summary(result.ai);
       showStrategies(result.perStrategy);
-      const zeroReason = result.main.total === 0 ? ` Основной: 0 сделок — не было ${minimumControl.value} совпадений среди ${enabled.filter(Boolean).length} выбранных стратегий.` : "";
+      const zeroReason = result.main.total === 0 ? ` Основной: 0 сделок — порог ${minimumControl.value} не был достигнут при ${enabled.filter(Boolean).length} выбранных стратегиях.` : "";
       status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Журналы не менялись.${zeroReason}`;
     } catch (e) { status.textContent = "Бэктест не выполнен: " + e.message; }
     finally { run.disabled = false; }
