@@ -1,6 +1,7 @@
 import{createMarketChart}from"./chart.js";
 import{createJournal}from"./journal.js";
 import{initBitcoinBacktest}from"./backtest.js";
+import { initGptStrategyUi } from "./gpt-strategy-ui.js";
 import{names}from"../strategies/index.js";
 import{supabase}from"./supabase.js";
 const $=id=>document.getElementById(id);
@@ -9,6 +10,7 @@ const WORKER="https://bitcoin-scalping-bot.fsb777f.workers.dev";
 let tf="1m",chart=createMarketChart($("chart")),settings=null,serverState=null,polling=false,previousPrice=null;
 let aiJournalLoading=false;
 const journal=createJournal(supabase);
+initGptStrategyUi(WORKER);
 const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),consensus_enabled:true,required_matches:3,risk_reward:2,ai_enabled:false,execution_mode:"VIRTUAL",trade_size:null});
 function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"TradingView график":"График не загрузился")}
 function syncControls(){
