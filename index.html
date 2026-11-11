@@ -97,7 +97,7 @@
       <p class="tt-sub">Один экран для наблюдения за Bitcoin, Gold AI, независимым AI, Тестом и стратегиями ЧПТ. Только чтение: торговые сигналы, сделки и настройки не изменяются.</p>
     </div>
     <div class="tt-actions">
-      <span class="tt-mode">◉ Только наблюдение</span>
+      <span class="tt-mode">◉ Только наблюдение</span><span class="tt-health" id="ttHealth" aria-live="polite">Подключение…</span>
       <button class="tt-refresh" id="ttRefresh" type="button">Обновить данные</button>
     </div>
   </div>
@@ -109,6 +109,13 @@
     <span class="tt-source">Ожидание первого обновления</span>
   </div>
 
+  <div class="tt-view-switch" role="tablist" aria-label="Разделы торгового терминала">
+    <button type="button" class="tt-view-button is-active" data-tt-view="overview" role="tab" aria-selected="true">Обзор</button>
+    <button type="button" class="tt-view-button" data-tt-view="systems" role="tab" aria-selected="false">Боты</button>
+    <button type="button" class="tt-view-button" data-tt-view="strategies" role="tab" aria-selected="false">41 стратегия</button>
+    <button type="button" class="tt-view-button" data-tt-view="trades" role="tab" aria-selected="false">Сделки</button>
+  </div>
+  <div class="tt-pane is-active" data-tt-pane="overview">
   <div class="tt-section-heading">Рынок <small>Capital.com Demo · закрытые свечи 5m</small></div>
   <div class="tt-markets">
     <article class="tt-card">
@@ -141,17 +148,26 @@
     </article>
   </div>
 
+  <div class="tt-section-heading tt-mobile-heading">Все системы <small>Обзор PnL и сигналов</small></div>
+  <div class="tt-mobile-summary" id="ttQuick"><div class="tt-mini">Загрузка систем…</div></div>
+  </div>
+  <div class="tt-pane" data-tt-pane="systems">
   <div class="tt-section-heading">Системы и результаты <small>Журналы независимы · суммы не складываются</small></div>
   <div class="tt-systems" id="ttSystems">
     <div class="tt-card"><div class="tt-mini">Загрузка торговых систем…</div></div>
   </div>
 
+  </div>
+  <div class="tt-pane" data-tt-pane="strategies">
   <div class="tt-section-heading">Карта 41 стратегии Bitcoin <small>Цвет — текущий сигнал, не прибыльность</small></div>
   <div class="tt-heatmap" id="ttHeatmap"><div class="tt-mini">Ожидание сканера…</div></div>
 
+  </div>
+  <div class="tt-pane" data-tt-pane="trades">
   <div class="tt-section-heading">Последние сделки <small>Снимок журналов, без изменений</small></div>
   <div class="tt-card"><div class="tt-list" id="ttTrades"><p class="tt-mini">Загружаем последние сделки…</p></div></div>
   <p class="tt-footer" id="ttFooter">Данные обновляются только при открытой вкладке. Графики 5m — раз в пять минут. PnL в разных журналах нормирован на 1 BTC или 1 унцию золота, поэтому его нельзя складывать как доход счёта.</p>
+  </div>
 </section>
 </main>
 <nav class="nav" id="appNav"><button class="active" type="button" data-view="market">Рынок</button><button type="button" data-view="strategies">Стратегии</button><button type="button" data-view="journal">Журнал</button><button type="button" data-view="ai">AI Аналитик</button><button type="button" data-view="test">Тест</button><button type="button" data-view="backtest">Бэктест</button><button type="button" data-view="gpt">Стратегия ЧПТ</button><button type="button" data-view="terminal">Терминал</button></nav><script type="module" src="./test-module/ui.js"></script><script type="module" src="./js/app.js"></script></body></html>
