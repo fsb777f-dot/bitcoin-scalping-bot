@@ -1,7 +1,7 @@
 export function createMarketChart(el){
   let timeframe="1m";
   function render(){
-    const interval=timeframe==="5m"?"5":"1";
+    const interval=timeframe==="15m"?"15":timeframe==="5m"?"5":"1";
     const params=new URLSearchParams({
       symbol:"BINANCE:BTCUSDT",
       interval,
@@ -32,5 +32,5 @@ export function createMarketChart(el){
     el.appendChild(frame);
   }
   render();
-  return {setTimeframe(value){timeframe=value==="5m"?"5m":"1m";render()}};
+  return {setTimeframe(value){timeframe=["1m","5m","15m"].includes(value)?value:"1m";render()}};
 }

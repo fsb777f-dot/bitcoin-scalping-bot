@@ -1,5 +1,6 @@
 import{createMarketChart}from"./chart.js";
 import{createJournal}from"./journal.js";
+import{initBitcoinBacktest}from"./backtest.js";
 import{names}from"../strategies/index.js";
 import{supabase}from"./supabase.js";
 const $=id=>document.getElementById(id);
@@ -25,7 +26,7 @@ function syncControls(){
  $("demoTradeSize").value=settings.trade_size==null?"":String(settings.trade_size);
  $("demoExecutionNote").textContent=settings.execution_mode==="MAIN_DEMO"?"Включён основной DEMO. AI продолжает виртуальную торговлю.":settings.execution_mode==="AI_DEMO"?"Включён AI DEMO. Основной бот продолжает виртуальную торговлю.":"DEMO-торговля выключена. Оба режима работают виртуально.";
 
- $("tfLabel").textContent=tf==="1m"?"1 минута":"5 минут";
+ $("tfLabel").textContent={"1m":"1 минута","5m":"5 минут","15m":"15 минут"}[tf];
  document.querySelectorAll("[data-tf]").forEach(b=>b.classList.toggle("active",b.dataset.tf===tf));
 }
 function renderStrategies(){
@@ -97,7 +98,7 @@ async function loadAiJournal(){
    const time=Number(t.trade_time)?new Date(Number(t.trade_time)).toLocaleString("ru-RU"):"—";
    return '<div class="ai-trade-row"><div class="ai-trade-top"><b class="'+(side==="BUY"?"green":"red")+'">'+side+'</b><span class="'+(isOpen?"yellow":profit?"green":loss?"red":"muted")+'">'+result+'</span><time>'+time+'</time></div><div class="ai-trade-values"><span>Вход <b>'+fmt(t.entry)+'</b></span>'+(t.partial_exit_price!=null?'<span>50% <b>'+fmt(t.partial_exit_price)+'</b></span>':'')+'<span>Выход <b>'+fmt(t.exit)+'</b></span><span>PnL <b class="'+(Number(t.pnl)>0?"green":Number(t.pnl)<0?"red":"")+'">'+pnlText+'</b></span></div></div>';
   }).join("")+'</div>':'<p class="notice">У AI пока нет виртуальных сделок. Когда появится BUY или SELL, сделки отобразятся здесь.</p>';
-  $("aiJournalNote").textContent="Облачный журнал AI · показаны последние "+Math.min(rows.length,100)+" из "+rows.length+" сделок. PnL включает закрытые сделки и прибыль от уже закрытых 50%.";
+  $("aiJournalNote").textContent="Облачный журнал AI · показаны последние "+Math.min(rows.length,100)+" из "+rows.length+" сделок. Старые частичные закрытия сохранены в истории; новые позиции сопровождаются целиком.";
  }catch(error){
   $("aiJournalNote").textContent="Не удалось загрузить журнал AI: "+error.message;
  }finally{aiJournalLoading=false}
@@ -111,7 +112,7 @@ async function loadSettings(){
  settings.enabled_strategies=settings.enabled_strategies.map(Boolean);
  if(![1,1.5,2,2.5,3,4].includes(Number(settings.risk_reward)))settings.risk_reward=2;
  if(!Number.isInteger(Number(settings.required_matches))||settings.required_matches<1||settings.required_matches>names.length)settings.required_matches=3;
- tf=settings.timeframe==="5m"?"5m":"1m";
+ tf=["1m","5m","15m"].includes(settings.timeframe)?settings.timeframe:"1m";
  syncControls();
  renderStrategies();
 }
@@ -164,7 +165,7 @@ function updatePrice(p){
 }
 async function startChart(){
  try{
-  $("tfLabel").textContent=tf==="1m"?"1 минута":"5 минут";
+  $("tfLabel").textContent={"1m":"1 минута","5m":"5 минут","15m":"15 минут"}[tf];
   chart?.setTimeframe(tf);
   status(true);
  }catch(e){status(false);$("signalNote").textContent="Ошибка отображения TradingView: "+e.message}
@@ -262,6 +263,7 @@ document.querySelectorAll(".nav [data-view]").forEach(b=>b.addEventListener("cli
  try{
   await journal.init();
   await loadSettings();
+  initBitcoinBacktest(()=>settings,WORKER);
   await loadAiJournal();
   await startChart();
   await pollState();

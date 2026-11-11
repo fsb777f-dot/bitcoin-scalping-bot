@@ -1,4 +1,4 @@
-// Virtual-only: take half off at +1 initial risk; trail the rest without TP.
+// Legacy positions that already closed 50% retain their old trailing rules.
 export function virtualPartialUpdate(trade, quote, risk) {
   const buy = trade.side === "BUY";
   const entry = Number(trade.entry), stop = Number(trade.sl);
@@ -19,6 +19,25 @@ export function virtualPartialUpdate(trade, quote, risk) {
   const proposed = buy ? Math.max(stop, candidate) : Math.min(stop, candidate);
   if (buy ? proposed <= stop + 1e-8 : proposed >= stop - 1e-8) return null;
   return { sl: proposed, trailing_active: true };
+}
+
+// TP starts full-position stop protection; it never sells half or closes at TP.
+export function virtualTargetTrailUpdate(trade, quote) {
+  const buy = trade.side === "BUY";
+  const entry = Number(trade.entry), stop = Number(trade.sl);
+  const target = Number(trade.initial_tp ?? trade.tp);
+  if (![entry, stop, target, quote].every(Number.isFinite) || entry <= 0 ||
+      !(buy ? target > entry : target < entry)) return null;
+  const distance = Math.abs(target - entry);
+  if (buy ? quote < target : quote > target) return null;
+  // After TP, trail additional movement with a small quote buffer, preserving
+  // room for bid/ask spread. The original risk is immutable after stop moves.
+  const risk = Number(trade.trailing_distance) > 0 ? Number(trade.trailing_distance) : distance;
+  const buffer = risk * 0.6;
+  const desired = buy ? Math.max(target, quote - buffer) : Math.min(target, quote + buffer);
+  const next = buy ? Math.max(stop, desired) : Math.min(stop, desired);
+  if (buy ? next <= stop + 1e-8 : next >= stop - 1e-8) return null;
+  return { sl: next, trailing_active: true };
 }
 
 export function virtualSettledPnl(trade, exitPrice) {

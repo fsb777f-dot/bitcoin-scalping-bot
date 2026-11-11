@@ -83,13 +83,13 @@ function capitalTime(value) {
   return Number.isFinite(date.getTime()) ? Math.floor(date.getTime() / 1000) : null;
 }
 
-export async function capitalDemoMarketData(env, timeframe = "1m", sharedAuth = null, sharedMarket = null) {
+export async function capitalDemoMarketData(env, timeframe = "1m", sharedAuth = null, sharedMarket = null, maxCandles = 300) {
   const auth = sharedAuth || await capitalDemoAuth(env);
   const resolutions = { "1m": "MINUTE", "5m": "MINUTE_5", "15m": "MINUTE_15", "1h": "HOUR", "4h": "HOUR_4" };
   if (!resolutions[timeframe]) throw new Error("Unsupported Capital.com timeframe");
   const [marketResult, historyResult] = await Promise.all([
     sharedMarket || request("/markets/BTCUSD", auth),
-    request("/prices/BTCUSD?resolution=" + resolutions[timeframe] + "&max=300", auth)
+    request("/prices/BTCUSD?resolution=" + resolutions[timeframe] + "&max=" + (maxCandles === 1000 ? 1000 : 300), auth)
   ]);
   const snapshot = marketResult.data?.snapshot || {};
   const bid = Number(snapshot.bid);
@@ -110,6 +110,9 @@ export async function capitalDemoMarketData(env, timeframe = "1m", sharedAuth = 
       high: midpoint(row.highPrice),
       low: midpoint(row.lowPrice),
       close: midpoint(row.closePrice),
+      bidOpen: Number(row.openPrice?.bid), askOpen: Number(row.openPrice?.ask),
+      bidClose: Number(row.closePrice?.bid), askClose: Number(row.closePrice?.ask),
+      bidLow: Number(row.lowPrice?.bid), askHigh: Number(row.highPrice?.ask),
       volume: Number(row.lastTradedVolume) || 0
     };
   }).filter(c => c.time !== null && [c.open, c.high, c.low, c.close].every(Number.isFinite))

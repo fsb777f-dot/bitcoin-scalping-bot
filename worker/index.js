@@ -1,7 +1,7 @@
 import { buildContext } from "../js/indicators.js";
 import { strategies, names } from "../strategies/index.js";
 import { capitalDemoStatus, capitalDemoMarketData, capitalDemoMarketBundle, capitalDemoInstrumentRules, capitalDemoOpenPosition, capitalDemoUpdatePosition, capitalDemoReconcile } from "./capital-demo.js";
-import { virtualPartialUpdate, virtualSettledPnl, virtualStopFill, spreadSafeStopDistance } from "./partial-profit.js";
+import { virtualPartialUpdate, virtualTargetTrailUpdate, virtualSettledPnl, virtualStopFill, spreadSafeStopDistance } from "./partial-profit.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -38,7 +38,7 @@ async function getSettings(env) {
   const enabled = Array.isArray(s.enabled_strategies) && s.enabled_strategies.length === names.length
     ? s.enabled_strategies.map(Boolean) : names.map(() => true);
   return {
-    timeframe: s.timeframe === "5m" ? "5m" : "1m",
+    timeframe: ["1m", "5m", "15m"].includes(s.timeframe) ? s.timeframe : "1m",
     aiEnabled: s.ai_enabled === true,
     enabled,
     consensusEnabled: true,
@@ -321,23 +321,18 @@ async function updateOpenTrades(env, bid, ask) {
       });
       continue;
     }
-    // New paper-only management activates when the additive journal column exists.
-    // Until the Supabase migration runs, existing trading behaviour is preserved.
-    if (!isDemo && Object.hasOwn(t, "partial_exit_price")) {
+    // Already half-closed legacy trades keep their accounting and old trailing.
+    if (!isDemo && t.partial_exit_price != null) {
       const update = virtualPartialUpdate(t, price, risk);
       if (update) await patchTrade(env, t.trade_key, update);
       continue;
     }
-    // No TP exit: trail once the executable closing quote is in profit.
-    const favorableMove = buy ? price - entry : entry - price;
-    if (favorableMove <= 0) continue;
-    // Protect half the observed favorable move; never move a stop backwards.
-    const desired = buy ? entry + favorableMove * 0.5 : entry - favorableMove * 0.5;
-    const nextStop = buy ? Math.max(currentStop, desired) : Math.min(currentStop, desired);
-    if (buy ? nextStop <= currentStop + 1e-8 : nextStop >= currentStop - 1e-8) continue;
+    const update = virtualTargetTrailUpdate(t, price);
+    if (!update) continue;
+    const nextStop = update.sl;
     if (isDemo) {
-      // Capital.com enforces minimum stop distance. Do not claim a broker stop
-      // changed unless the broker confirms the amendment.
+      // Capital.com cannot place a stop at the current quote. Wait until the
+      // broker permits the TP-level stop; never claim an unconfirmed amendment.
       if (!t.capital_deal_id) continue;
       const minimumGap = Math.max(spread * 1.05, 1e-8);
       if (buy ? nextStop >= bid - minimumGap : nextStop <= ask + minimumGap) continue;
@@ -348,7 +343,7 @@ async function updateOpenTrades(env, bid, ask) {
         console.error("Capital.com trailing stop update failed", t.trade_key, error?.message || String(error));
       }
     } else {
-      await patchTrade(env, t.trade_key, { sl: nextStop, trailing_active: true });
+      await patchTrade(env, t.trade_key, update);
     }
   }
 }
@@ -368,7 +363,7 @@ async function openDemoTradeOnce(env, trade, executionMode, size) {
   return { duplicate: false, dealId: order.dealId };
 }
 async function getPreviousState(env) {
-  const rows = await db(env, "bot_state?id=eq.1&select=ai_side,side,candle_time");
+  const rows = await db(env, "bot_state?id=eq.1&select=ai_side,side,candle_time,timeframe");
   return rows?.[0] || {};
 }
 async function getStrategyPerformance(env) {
@@ -450,7 +445,8 @@ async function runScan(env) {
   let ai = settings.aiEnabled ? aiDecision(results, names.map(() => true), performance) : null;
   const candle = candles[candles.length - 1];
   // Match the earlier paper-trading behavior: AI may enter again on each new candle.
-  const aiSignalChanged = (ai?.side === "BUY" || ai?.side === "SELL") && candle.time !== previousState.candle_time;
+  const newCandle = candle.time > Number(previousState.candle_time || 0);
+  const aiSignalChanged = (ai?.side === "BUY" || ai?.side === "SELL") && newCandle;
   // A string of recent stopped-out AI trades in the same direction signals
   // a poor market regime. Pause new entries briefly, without closing or
   // limiting existing positions or disabling any strategy votes.
@@ -476,10 +472,10 @@ async function runScan(env) {
   let executionError = null;
   // Enter on every new candle with a directional signal; trade_key prevents duplicate scans.
   const scanMinute = Math.floor(Date.now() / 60000);
-  const normalSignalChanged = normalSide === "BUY" || normalSide === "SELL";
+  const normalSignalChanged = (normalSide === "BUY" || normalSide === "SELL") && newCandle;
   if (normalSignalChanged) {
     const normalTrade = {
-      trade_key: "server:" + settings.timeframe + ":" + candle.time + ":" + scanMinute + ":" + normalSide,
+      trade_key: "server:" + settings.timeframe + ":" + candle.time + ":" + (settings.timeframe === "1m" ? scanMinute + ":" : "") + normalSide,
       trade_time: scanMinute * 60000, side: normalSide, entry: normalEntry, sl: normalSl, tp: normalTp,
       initial_tp: normalTp, trailing_distance: Math.abs(normalEntry - normalSl), trailing_active: false,
       confirmations: names.filter((_, i) => settings.enabled[i] && results[i] === normalSide),
@@ -581,6 +577,14 @@ export default {
     if (url.pathname === "/api/capital-demo/market-bundle" && request.method === "GET") {
       try { return reply(await capitalDemoMarketBundle(env)); }
       catch (e) { return reply({ error: e?.message || "Capital.com Demo multi-timeframe data failed" }, 502); }
+    }
+    if (url.pathname === "/api/backtest-history" && request.method === "GET") {
+      const timeframe = url.searchParams.get("timeframe") || "1m";
+      if (!["1m", "5m", "15m"].includes(timeframe)) return reply({ error: "Invalid backtest timeframe" }, 400);
+      try {
+        const history = await capitalDemoMarketData(env, timeframe, null, null, 1000);
+        return reply({ source: history.source, symbol: "BTCUSD", timeframe, candles: history.candles });
+      } catch (e) { return reply({ error: e?.message || "Capital.com history unavailable" }, 502); }
     }
     if (url.pathname === "/api/execution-mode" && request.method === "POST") {
       try {
