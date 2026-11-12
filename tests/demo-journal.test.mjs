@@ -1,11 +1,24 @@
 import assert from "node:assert/strict";
 import { capitalDemoPositionSnapshot, capitalDemoSettlement, capitalDemoCloseEvent, capitalDemoTradeTransaction } from "../worker/capital-demo.js";
-import { closedDemoJournalPath } from "../worker/index.js";
+import { closedDemoJournalPath, mainTradeRecords } from "../worker/index.js";
 
 assert.equal(closedDemoJournalPath("ALL"), "trades?status=eq.CLOSED&execution_mode=in.(MAIN_DEMO,AI_DEMO)");
 assert.equal(closedDemoJournalPath("MAIN_DEMO"), "trades?status=eq.CLOSED&execution_mode=eq.MAIN_DEMO");
 assert.equal(closedDemoJournalPath("AI_DEMO"), "trades?status=eq.CLOSED&execution_mode=eq.AI_DEMO");
 assert.throws(() => closedDemoJournalPath("VIRTUAL"), /Invalid DEMO journal filter/);
+
+const mainSignal = { trade_key: "server:5m:1794492000:BUY", side: "BUY", entry: 100, sl: 90 };
+const parallel = mainTradeRecords(mainSignal, true);
+assert.equal(parallel.virtual.trade_key, mainSignal.trade_key);
+assert.equal(parallel.virtual.execution_mode, "VIRTUAL");
+assert.equal(parallel.demo.trade_key, "demo:" + mainSignal.trade_key);
+assert.notEqual(parallel.virtual.trade_key, parallel.demo.trade_key,
+  "DEMO must never conflict with the main virtual trade on the same signal");
+assert.equal(mainTradeRecords(mainSignal, false).demo, null,
+  "turning DEMO off must not suppress the main virtual trade");
+assert.equal(mainTradeRecords(mainSignal, false).virtual.execution_mode, "VIRTUAL");
+assert.deepEqual(mainSignal, { trade_key: "server:5m:1794492000:BUY", side: "BUY", entry: 100, sl: 90 },
+  "preparing parallel executions must not mutate original signal");
 
 assert.deepEqual(capitalDemoPositionSnapshot({ level: 74502.5, size: 0.0005, upl: -0.12 }), {
   entry: 74502.5, demo_size: 0.0005, demo_open_pnl: -0.12

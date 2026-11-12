@@ -29,7 +29,7 @@ function syncControls(){
  $("mainDemoEnabled").checked=settings.execution_mode==="MAIN_DEMO";
  $("aiDemoEnabled").checked=settings.execution_mode==="AI_DEMO";
  $("demoTradeSize").value=settings.trade_size==null?"":String(settings.trade_size);
- $("demoExecutionNote").textContent=settings.execution_mode==="MAIN_DEMO"?"Включён основной DEMO. AI продолжает виртуальную торговлю.":settings.execution_mode==="AI_DEMO"?"Включён AI DEMO. Основной бот продолжает виртуальную торговлю.":"DEMO-торговля выключена. Оба режима работают виртуально.";
+ $("demoExecutionNote").textContent=settings.execution_mode==="MAIN_DEMO"?"Основной бот торгует виртуально; дополнительно включён Capital.com DEMO. AI остаётся виртуальным.":settings.execution_mode==="AI_DEMO"?"Включён AI DEMO. Основной бот продолжает виртуальную торговлю.":"DEMO-торговля выключена. Оба режима работают виртуально.";
 
  $("tfLabel").textContent={"1m":"1 минута","5m":"5 минут","15m":"15 минут"}[tf];
  document.querySelectorAll("[data-tf]").forEach(b=>b.classList.toggle("active",b.dataset.tf===tf));

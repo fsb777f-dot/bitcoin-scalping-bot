@@ -19,6 +19,15 @@ export function closedDemoJournalPath(mode) {
   return "trades?status=eq.CLOSED&execution_mode="
     + (mode === "ALL" ? "in.(MAIN_DEMO,AI_DEMO)" : "eq." + mode);
 }
+
+// The main paper trader always runs; DEMO orders get a separate key so the
+// two executions can coexist and be reconciled in their independent journals.
+export function mainTradeRecords(trade, demoEnabled) {
+  return {
+    virtual: { ...trade, execution_mode: "VIRTUAL" },
+    demo: demoEnabled ? { ...trade, trade_key: "demo:" + trade.trade_key } : null
+  };
+}
 // Per-isolate fast cache; edge Cache API below also helps when isolates rotate.
 const backtestHistoryCache = new Map();
 const clamp = (n, min, max) => Math.max(min, Math.min(max, Number(n) || min));
@@ -516,14 +525,21 @@ async function runScan(env) {
       confirmations: names.filter((_, i) => settings.enabled[i] && results[i] === normalSide),
       exit: null, pnl: null, status: "OPEN", result: null, updated_at: new Date().toISOString()
     };
-    if (settings.executionMode === "MAIN_DEMO") {
+    const { virtual, demo } = mainTradeRecords(normalTrade, settings.executionMode === "MAIN_DEMO");
+    // A DEMO toggle must never suspend the main virtual journal.
+    try {
+      await insertTradeOnce(env, virtual);
+    } catch (error) {
+      executionError = "Основной виртуальный: " + (error?.message || String(error));
+      console.error("Main virtual trade insert failed", executionError);
+    }
+    if (demo) {
       try {
-        await openDemoTradeOnce(env, normalTrade, "MAIN_DEMO", settings.tradeSize);
+        await openDemoTradeOnce(env, demo, "MAIN_DEMO", settings.tradeSize);
       } catch (error) {
-        executionError = "Основной DEMO: " + (error?.message || String(error));
+        const message = "Основной DEMO: " + (error?.message || String(error));
+        executionError = [executionError, message].filter(Boolean).join(" | ");
       }
-    } else {
-      await insertTradeOnce(env, { ...normalTrade, execution_mode: "VIRTUAL" });
     }
   }
 
