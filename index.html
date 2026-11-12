@@ -61,11 +61,12 @@
 </section>
 <section class="panel wide backtest-panel" id="backtest-section" data-screen="backtest" hidden>
   <div class="sectiontitle">Бэктест Bitcoin <span class="muted small">41 стратегия · только история</span></div>
-  <p class="notice">История BTCUSD Capital.com Demo. Вход по следующей свече, Bid/Ask и спред учтены. Половина позиции не закрывается: при достижении TP стоп переносится к TP и затем движется за ценой. Бэктест не создаёт реальные или виртуальные сделки.</p>
+  <p class="notice">История BTCUSD Capital.com Demo. Вход по следующей свече, Bid/Ask и спред учтены. Половина позиции не закрывается: при достижении TP стоп переносится к TP и затем движется за ценой. Размер позиции меняет только результат расчёта PnL, без комиссий, ночного финансирования, маржинальных ограничений и дополнительного проскальзывания. Бэктест не создаёт реальные или виртуальные сделки.</p>
   <div class="backtest-controls">
     <label>Таймфрейм <select id="backtestTimeframe"><option value="1m">1 минута</option><option value="5m">5 минут</option><option value="15m">15 минут</option></select></label>
     <label>Риск / прибыль <select id="backtestRiskReward"><option value="1">1 : 1</option><option value="1.5">1 : 1,5</option><option value="2">1 : 2</option><option value="2.5">1 : 2,5</option><option value="3">1 : 3</option><option value="4">1 : 4</option></select></label>
     <label>Минимум совпадений <select id="backtestMinMatches"></select></label>
+    <label>Размер позиции BTC <input id="backtestPositionSize" type="text" inputmode="decimal" value="0.01" placeholder="0.005 / 0.01 / 0.1" autocomplete="off"></label>
     <button id="runBitcoinBacktest" type="button">Запустить бэктест</button>
   </div>
   <p id="backtestMatchHint" class="notice"></p>

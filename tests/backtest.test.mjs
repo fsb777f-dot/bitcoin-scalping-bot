@@ -39,3 +39,23 @@ test("disabled strategies remain visible and invalid bid/ask is rejected", () =>
   candles[0].askOpen = candles[0].bidOpen - 1;
   assert.throws(() => backtestBitcoin(candles, { enabled, minMatches: 8, riskReward: 1.5 }), /Bid\/Ask/);
 });
+
+test("BTC volume scales closed PnL, floating PnL and drawdown, not signal count", () => {
+  const candles = syntheticCandles();
+  const enabled = names.map(() => true);
+  const one = backtestBitcoin(candles, { enabled, minMatches: 1, riskReward: 2, positionSize: 1 });
+  const small = backtestBitcoin(candles, { enabled, minMatches: 1, riskReward: 2, positionSize: 0.005 });
+  const normal = backtestBitcoin(candles, { enabled, minMatches: 1, riskReward: 2, positionSize: 0.01 });
+  const large = backtestBitcoin(candles, { enabled, minMatches: 1, riskReward: 2, positionSize: 0.1 });
+  assert.equal(small.positionSize, 0.005);
+  for (const [smallRun, size] of [[small, 0.005], [normal, 0.01], [large, 0.1]]) {
+    assert.equal(smallRun.main.total, one.main.total);
+    assert.equal(smallRun.main.closed, one.main.closed);
+    assert.equal(smallRun.main.wins, one.main.wins);
+    assert.equal(smallRun.main.losses, one.main.losses);
+    assert.ok(Math.abs(smallRun.main.closedPnl - one.main.closedPnl * size) <= 0.02);
+    assert.ok(Math.abs(smallRun.main.pnl - one.main.pnl * size) <= 0.02);
+    assert.ok(Math.abs(smallRun.main.maxDrawdown - one.main.maxDrawdown * size) <= 0.02);
+  }
+  assert.throws(() => backtestBitcoin(candles, { enabled, minMatches: 1, riskReward: 2, positionSize: 0 }), /размер позиции/);
+});
