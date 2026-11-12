@@ -147,7 +147,7 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 @media(max-width:600px){body{padding-bottom:100px}.nav{justify-content:flex-start;flex-wrap:nowrap;padding-left:10px;padding-right:10px}.nav button{font-size:11px;padding:9px 10px}}
 .backtest-controls{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin:15px 0}
 .backtest-controls label{display:grid;gap:6px;color:var(--muted);font-size:12px}
-.backtest-controls select{min-width:115px;padding:10px;border-radius:8px;color:var(--text);background:#0c1320;border:1px solid var(--line)}
+.backtest-controls select,.backtest-controls input{min-width:115px;max-width:190px;padding:10px;border-radius:8px;color:var(--text);background:#0c1320;border:1px solid var(--line)}
 .backtest-controls button{padding:11px 15px;background:#20314d;border-color:#5476a8;cursor:pointer}
 .backtest-controls button:disabled{opacity:.5;cursor:wait}
 .backtest-results{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}

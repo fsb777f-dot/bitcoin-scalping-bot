@@ -40,6 +40,19 @@ test("disabled strategies remain visible and invalid bid/ask is rejected", () =>
   assert.throws(() => backtestBitcoin(candles, { enabled, minMatches: 8, riskReward: 1.5 }), /Bid\/Ask/);
 });
 
+test("BTC cost is charged per closed trade, not per open position", () => {
+  const candles = syntheticCandles(380), enabled = names.map(() => true);
+  const plain = backtestBitcoin(candles, { enabled, minMatches: 1, riskReward: 2, positionSize: 0.01 });
+  const charged = backtestBitcoin(candles, { enabled, minMatches: 1, riskReward: 2, positionSize: 0.01, tradeCostUsd: 0.25 });
+  assert.equal(charged.tradeCostUsd, 0.25);
+  const original = plain.perStrategy.find(s => s.closed > 0);
+  assert.ok(original, "synthetic candles must include closed trades");
+  const net = charged.perStrategy.find(s => s.id === original.id);
+  assert.equal(net.closedPnl, Math.round((original.closedPnl - original.closed * 0.25) * 10000) / 10000);
+  assert.equal(net.closed, original.closed);
+  assert.throws(() => backtestBitcoin(candles, { enabled, minMatches: 1, riskReward: 2, tradeCostUsd: -1 }), /расходы/);
+});
+
 test("BTC volume scales closed PnL, floating PnL and drawdown, not signal count", () => {
   const candles = syntheticCandles();
   const enabled = names.map(() => true);

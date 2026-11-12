@@ -2,7 +2,7 @@ import { buildContext } from "./indicators.js";
 import { strategies, names } from "../strategies/index.js";
 import { spreadSafeStopDistance, virtualTargetTrailUpdate, virtualStopFill } from "../worker/partial-profit.js";
 
-const round = n => Math.round(n * 100) / 100;
+const round = n => Math.round(n * 10000) / 10000;
 const direction = trade => trade.side === "BUY" ? 1 : -1;
 const quoteValid = c => [c.open, c.high, c.low, c.close, c.bidOpen, c.askOpen,
   c.bidLow, c.askHigh, c.bidClose, c.askClose].every(Number.isFinite)
@@ -24,7 +24,7 @@ function aiVote(votes, enabled) {
     : total >= 3 && sells > buys && sells / total >= 0.7 ? "SELL" : "WAIT";
 }
 
-function simulate(candles, steps, sideFor, rr, id, label, positionSize) {
+function simulate(candles, steps, sideFor, rr, id, label, positionSize, tradeCostUsd) {
   const open = [], closedTrades = [];
   let total = 0, realized = 0, wins = 0, losses = 0, grossWins = 0, grossLosses = 0;
   let peak = 0, maxDrawdown = 0;
@@ -47,7 +47,7 @@ function simulate(candles, steps, sideFor, rr, id, label, positionSize) {
       if (stopped) {
         // At a gap, the opening executable quote can be worse than the stop.
         const exit = virtualStopFill(trade.side, trade.sl, buy ? bar.bidOpen : bar.askOpen);
-        const pnl = direction(trade) * (exit - trade.entry) * positionSize;
+        const pnl = direction(trade) * (exit - trade.entry) * positionSize - tradeCostUsd;
         realized += pnl;
         if (pnl > 0) { wins++; grossWins += pnl; }
         else if (pnl < 0) { losses++; grossLosses -= pnl; }
@@ -76,7 +76,7 @@ function simulate(candles, steps, sideFor, rr, id, label, positionSize) {
     })) };
 }
 
-export function backtestBitcoin(candles, { enabled, minMatches, riskReward, positionSize = 1 }) {
+export function backtestBitcoin(candles, { enabled, minMatches, riskReward, positionSize = 1, tradeCostUsd = 0 }) {
   if (!Array.isArray(candles) || candles.length < 250 || !candles.every(quoteValid))
     throw new Error("Для BTC бэктеста нужно минимум 250 корректных свечей Bid/Ask");
   if (!Array.isArray(enabled) || enabled.length !== names.length ||
@@ -84,6 +84,8 @@ export function backtestBitcoin(candles, { enabled, minMatches, riskReward, posi
       ![1, 1.5, 2, 2.5, 3, 4].includes(riskReward)) throw new Error("Неверные настройки BTC бэктеста");
   if (!Number.isFinite(positionSize) || positionSize <= 0)
     throw new Error("Укажи положительный размер позиции BTC");
+  if (!Number.isFinite(tradeCostUsd) || tradeCostUsd < 0)
+    throw new Error("Укажи неотрицательные расходы на сделку в USD");
   // Use only completed candles before each entry; never inspect future bars.
   const steps = [];
   for (let i = 240; i < candles.length; i++) {
@@ -92,15 +94,15 @@ export function backtestBitcoin(candles, { enabled, minMatches, riskReward, posi
       try { return strategy(context); } catch { return "WAIT"; }
     }) };
   }
-  const main = simulate(candles, steps, votes => vote(votes, enabled, minMatches), riskReward, "main", "Основной · совпадения", positionSize);
-  const ai = simulate(candles, steps, votes => aiVote(votes, enabled), riskReward, "ai", "AI · выбранные стратегии, равные веса (приближённо)", positionSize);
+  const main = simulate(candles, steps, votes => vote(votes, enabled, minMatches), riskReward, "main", "Основной · совпадения", positionSize, tradeCostUsd);
+  const ai = simulate(candles, steps, votes => aiVote(votes, enabled), riskReward, "ai", "AI · выбранные стратегии, равные веса (приближённо)", positionSize, tradeCostUsd);
   const perStrategy = names.map((name, i) => ({ name, enabled: enabled[i],
-    ...simulate(candles, steps, votes => votes[i], riskReward, "strategy_" + i, name, positionSize) }));
+    ...simulate(candles, steps, votes => votes[i], riskReward, "strategy_" + i, name, positionSize, tradeCostUsd) }));
   return { candles: candles.length, from: candles[240].time, to: candles.at(-1).time,
-    positionSize, main, ai, perStrategy };
+    positionSize, tradeCostUsd, main, ai, perStrategy };
 }
 
-const text = n => n == null ? "—" : Number(n).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+const text = n => n == null ? "—" : Number(n).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const metric = (name, value) => `<div><small>${name}</small><b>${value}</b></div>`;
 const summary = (result, positionSize) => `<article class="backtest-card"><h3>${result.label}</h3><div class="backtest-metrics">`
   + metric("Закрытый PnL · USD (" + positionSize + " BTC/сделка)", `<span class="${result.closedPnl >= 0 ? "green" : "red"}">${result.closedPnl > 0 ? "+" : ""}${text(result.closedPnl)}</span>`)
@@ -127,10 +129,33 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
   for (const target of ["Main", "Ai", "Test"]) $("backtestApply" + target).addEventListener("change", canApply);
   for (const control of ["backtestTimeframe", "backtestRiskReward"]) $(control).addEventListener("change", invalidate);
   const positionInput = $("backtestPositionSize");
+  const costInput = $("backtestTradeCostUsd");
+  let brokerRules = null;
+  const validBrokerSize = size => size >= brokerRules.minDealSize - 1e-10 &&
+    size <= brokerRules.maxDealSize + 1e-10 &&
+    Math.abs((size - brokerRules.minDealSize) / brokerRules.sizeIncrement
+      - Math.round((size - brokerRules.minDealSize) / brokerRules.sizeIncrement)) < 1e-6;
+  async function loadBrokerRules() {
+    try {
+      const response = await fetch(workerUrl + "/api/capital-demo/rules", { cache: "no-store" });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const rules = await response.json();
+      if (!(rules.minDealSize > 0 && rules.sizeIncrement > 0 && rules.maxDealSize >= rules.minDealSize))
+        throw new Error("Нет лимитов объёма");
+      brokerRules = rules;
+      $("backtestSizeNote").textContent = "Capital.com Demo · объём BTC от " + rules.minDealSize
+        + " до " + rules.maxDealSize + ", шаг " + rules.sizeIncrement + ".";
+    } catch {
+      $("backtestSizeNote").textContent = "Лимиты Capital.com сейчас недоступны: расчёт ориентировочный, размер DEMO-позиции необходимо проверить отдельно.";
+    }
+  }
+  loadBrokerRules();
   let savedPositionSize = null;
   try { savedPositionSize = localStorage.getItem("btc-backtest-position-size"); } catch {}
   positionInput.value = savedPositionSize || String(getSettings()?.trade_size || 0.01);
   positionInput.addEventListener("input", invalidate);
+  try { const savedCost = localStorage.getItem("btc-backtest-trade-cost"); if (savedCost !== null) costInput.value = savedCost; } catch {}
+  costInput.addEventListener("input", invalidate);
   $("backtestTimeframe").value = ["1m", "5m", "15m"].includes(getSettings()?.timeframe) ? getSettings().timeframe : "1m";
   $("backtestRiskReward").value = String(getSettings()?.risk_reward || 2);
   const minimumControl = $("backtestMinMatches");
@@ -182,10 +207,19 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
     status.textContent = "Загружаем историю BTCUSD с Capital.com…";
     try {
       const timeframe = $("backtestTimeframe").value;
-      const positionSize = Number(positionInput.value.trim().replace(",", "."));
+      const positionRaw = positionInput.value.trim().replace(",", ".");
+      const costRaw = costInput.value.trim().replace(",", ".");
+      const positionSize = positionRaw ? Number(positionRaw) : NaN;
+      const tradeCostUsd = costRaw ? Number(costRaw) : NaN;
       if (!Number.isFinite(positionSize) || positionSize <= 0)
         throw new Error("Укажи положительный объём BTC, например 0.005, 0.01 или 0.1");
-      try { localStorage.setItem("btc-backtest-position-size", String(positionSize)); } catch {}
+      if (!Number.isFinite(tradeCostUsd) || tradeCostUsd < 0)
+        throw new Error("Укажи неотрицательные дополнительные расходы на сделку в USD");
+      if (brokerRules && !validBrokerSize(positionSize))
+        throw new Error("Capital.com не принимает такой размер BTC: от " + brokerRules.minDealSize
+          + " до " + brokerRules.maxDealSize + ", шаг " + brokerRules.sizeIncrement);
+      try { localStorage.setItem("btc-backtest-position-size", String(positionSize));
+        localStorage.setItem("btc-backtest-trade-cost", String(tradeCostUsd)); } catch {}
       const browserKey = "btc-backtest-history:" + timeframe;
       let history;
       try {
@@ -202,11 +236,11 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
       // Yield once so the progress label becomes visible before the CPU-intensive calculation.
       await new Promise(resolve => setTimeout(resolve, 0));
       const result = backtestBitcoin(history.candles, { enabled, minMatches: Number(minimumControl.value),
-        riskReward: Number($("backtestRiskReward").value), positionSize });
+        riskReward: Number($("backtestRiskReward").value), positionSize, tradeCostUsd });
       $("backtestResults").innerHTML = summary(result.main, positionSize) + summary(result.ai, positionSize);
       showStrategies(result.perStrategy);
       const zeroReason = result.main.total === 0 ? ` Основной: 0 сделок — порог ${minimumControl.value} не был достигнут при ${enabled.filter(Boolean).length} выбранных стратегиях.` : "";
-      status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Размер сделки: ${positionSize} BTC. Расчёт по Bid/Ask и спреду, без финансирования и дополнительного проскальзывания. Журналы не менялись.${zeroReason}`;
+      status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Размер сделки: ${positionSize} BTC. Доп. расходы: ${tradeCostUsd} USD/закрытую сделку. Расчёт по Bid/Ask и спреду, без автоматического учёта финансирования и дополнительного проскальзывания. Журналы не менялись.${zeroReason}`;
       validRun = true;
       canApply();
       $("backtestApplyStatus").textContent = "Бэктест готов. Отметь, куда применить настройки; остальные модули останутся без изменений.";
