@@ -267,7 +267,13 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
         body: JSON.stringify({ targets, preset })
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "HTTP " + response.status);
+      if (!response.ok) {
+        const alreadyApplied = Array.isArray(result.applied) && result.applied.length
+          ? "Часть настроек уже сохранена (" + result.applied.join(", ") + "). " : "";
+        const migrationHint = String(result.error || "").includes("bot_settings_timeframe_check")
+          ? "База Supabase пока не разрешает 15m. Выполни миграцию supabase/migrations/004_allow_15m_bot_settings.sql. " : "";
+        throw new Error(alreadyApplied + migrationHint + (result.error || "HTTP " + response.status));
+      }
       if (targets.main) await onMainApplied(preset);
       $("backtestApplyStatus").textContent = `Готово: применено к ${selected}. На следующем сканировании настройки вступят в силу. Старые три стратегии Теста сохранены.`;
       // A new run is required before further application so stale results cannot be reused.
