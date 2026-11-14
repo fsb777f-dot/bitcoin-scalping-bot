@@ -685,6 +685,15 @@ export default {
           return reply({ error: "Некорректный выбор стратегий или получателей бэктеста." }, 400);
         }
         const stamp = new Date().toISOString();
+        if (targets.main) {
+          await db(env, "bot_settings?id=eq.1", {
+            method: "PATCH", headers: { Prefer: "return=minimal" },
+            body: JSON.stringify({ timeframe: preset.timeframe,
+              enabled_strategies: preset.enabled, required_matches: preset.minMatches,
+              risk_reward: preset.riskReward, updated_at: stamp })
+          });
+          applied.push("main");
+        }
         if (targets.ai || targets.test) {
           const rows = await db(env, "test_settings?id=eq.1&select=enabled");
           const stored = rows?.[0]?.enabled;
@@ -697,15 +706,6 @@ export default {
           });
           if (targets.ai) applied.push("ai");
           if (targets.test) applied.push("test");
-        }
-        if (targets.main) {
-          await db(env, "bot_settings?id=eq.1", {
-            method: "PATCH", headers: { Prefer: "return=minimal" },
-            body: JSON.stringify({ timeframe: preset.timeframe,
-              enabled_strategies: preset.enabled, required_matches: preset.minMatches,
-              risk_reward: preset.riskReward, updated_at: stamp })
-          });
-          applied.push("main");
         }
         return reply({ ok: true, applied });
       } catch (error) {
