@@ -2,7 +2,7 @@
 -- Run this once in Supabase SQL Editor.
 create table if not exists public.bot_settings (
   id integer primary key default 1 check (id = 1),
-  timeframe text not null default '1m' check (timeframe in ('1m','5m')),
+  timeframe text not null default '1m' check (timeframe in ('1m','5m','15m')),
   enabled_strategies jsonb not null default '[]'::jsonb,
   consensus_enabled boolean not null default true,
   required_matches integer not null default 3 check (required_matches between 1 and 41),
