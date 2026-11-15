@@ -698,7 +698,8 @@ export default {
         const rows = await db(env, "test_settings?id=eq.1&select=enabled");
         const stored = rows?.[0]?.enabled;
         const flags = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
-        if (request.method === "GET") return reply({ enabled: flags.momentum_filter === true });
+        if (request.method === "GET") return reply({ enabled: flags.momentum_filter === true,
+          ai_enabled: flags.ai_momentum_filter === true });
         if (request.method !== "POST") return reply({ error: "Method not allowed" }, 405);
         if (!env.EXECUTION_CONTROL_PIN) return reply({ error: "PIN управления не настроен." }, 503);
         if (request.headers.get("X-Execution-Control") !== env.EXECUTION_CONTROL_PIN)
@@ -711,7 +712,8 @@ export default {
           method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
           body: JSON.stringify({ id: 1, enabled: updated, updated_at: new Date().toISOString() })
         });
-        return reply({ ok: true, enabled: body.enabled });
+        return reply({ ok: true, enabled: body.enabled,
+          ai_enabled: updated.ai_momentum_filter === true });
       } catch (error) {
         return reply({ error: error?.message || "Ошибка сохранения фильтра" }, 500);
       }
