@@ -163,6 +163,21 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
   const allStatus = $("backtestApplyAllStatus");
   let cardPresets = new Map();
   let applyingAll = false;
+  // Read-only receipt of the last accepted configuration, not a live order action.
+  fetch(workerUrl + "/api/backtest-global-preset", { cache: "no-store" })
+    .then(async response => {
+      if (!response.ok) return;
+      const data = await response.json();
+      const p = data.active;
+      if (p && !validRun && !applyingAll) {
+        allStatus.textContent = "Сейчас сохранено для новых сделок: ATR "
+          + p.atrMultiplier + ", выход " + (p.breakevenAtR === null
+            ? "после TP" : p.breakevenAtR === "hybrid" ? "Гибрид"
+              : "безубыток " + p.breakevenAtR + "R")
+          + ", " + p.timeframe + ", размер DEMO " + p.positionSize + " BTC. "
+          + "Для новой проверки запусти бэктест.";
+      }
+    }).catch(() => {});
   const momentumInput = $("backtestMomentumEnabled");
   const atrInput = $("backtestAtrMultiplier");
   const exitInput = $("backtestBreakevenAtR");
