@@ -789,7 +789,8 @@ export default {
             atrMultiplier: preset.atrMultiplier, breakevenAtR: preset.breakevenAtR,
             card: preset.card, applied_at: stamp, timeframe: preset.timeframe,
             riskReward: preset.riskReward, minMatches: preset.minMatches,
-            positionSize: preset.positionSize, momentumEnabled: preset.momentumEnabled
+            positionSize: preset.positionSize, momentumEnabled: preset.momentumEnabled,
+            simulatedTradeCostUsd: preset.tradeCostUsd ?? 0
           }
         };
         await db(env, "bot_settings?id=eq.1", {
