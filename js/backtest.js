@@ -125,6 +125,16 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
   const $ = id => document.getElementById(id);
   const enabled = (getSettings()?.enabled_strategies || names.map(() => true)).slice();
   const apply = $("backtestApply");
+  const momentumInput = $("backtestMomentumEnabled");
+  let savedMomentum = false;
+  try { savedMomentum = localStorage.getItem("btc-backtest-momentum-enabled") === "true"; } catch {}
+  momentumInput.checked = savedMomentum;
+  const updateMomentumNote = () => {
+    $("backtestMomentumNote").textContent = momentumInput.checked
+      ? "ВКЛ · в выбранном варианте основного бэктеста сигнал подтверждается скоростью и ускорением завершённых свечей. Реальная и DEMO-торговля не меняются."
+      : "ВЫКЛ · выбранный вариант основного бэктеста работает без фильтра, только по голосованию стратегий. Реальная и DEMO-торговля не меняются.";
+  };
+  updateMomentumNote();
   let validRun = false;
   const invalidate = () => {
     validRun = false;
@@ -136,6 +146,14 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
   };
   for (const target of ["Main", "Ai", "Test"]) $("backtestApply" + target).addEventListener("change", canApply);
   for (const control of ["backtestTimeframe", "backtestRiskReward"]) $(control).addEventListener("change", invalidate);
+  momentumInput.addEventListener("change", () => {
+    try { localStorage.setItem("btc-backtest-momentum-enabled", String(momentumInput.checked)); } catch {}
+    updateMomentumNote();
+    invalidate();
+    $("backtestStatus").textContent = momentumInput.checked
+      ? "Фильтр скорости/ускорения ВКЛ для проверки. Нажми «Запустить бэктест»."
+      : "Фильтр скорости/ускорения ВЫКЛ для проверки. Нажми «Запустить бэктест».";
+  });
   const positionInput = $("backtestPositionSize");
   const costInput = $("backtestTradeCostUsd");
   let brokerRules = null;
@@ -245,14 +263,19 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
       await new Promise(resolve => setTimeout(resolve, 0));
       const result = backtestBitcoin(history.candles, { enabled, minMatches: Number(minimumControl.value),
         riskReward: Number($("backtestRiskReward").value), positionSize, tradeCostUsd });
-      $("backtestResults").innerHTML = summary(result.main, positionSize)
-        + summary(result.momentum, positionSize) + summary(result.ai, positionSize);
+      const selectedMode = momentumInput.checked ? result.momentum : result.main;
+      const alternativeMode = momentumInput.checked ? result.main : result.momentum;
+      $("backtestResults").innerHTML = summary({
+        ...selectedMode, label: "Выбранный вариант · " + selectedMode.label
+      }, positionSize) + summary({
+        ...alternativeMode, label: "Для сравнения · " + alternativeMode.label
+      }, positionSize) + summary(result.ai, positionSize);
       showStrategies(result.perStrategy);
       const zeroReason = result.main.total === 0 ? ` Основной: 0 сделок — порог ${minimumControl.value} не был достигнут при ${enabled.filter(Boolean).length} выбранных стратегиях.` : "";
-      status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Размер сделки: ${positionSize} BTC. Доп. расходы: ${tradeCostUsd} USD/закрытую сделку. Расчёт по Bid/Ask и спреду, без автоматического учёта финансирования и дополнительного проскальзывания. Журналы не менялись.${zeroReason}`;
+      status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Размер сделки: ${positionSize} BTC. Доп. расходы: ${tradeCostUsd} USD/закрытую сделку. Расчёт по Bid/Ask и спреду, без автоматического учёта финансирования и дополнительного проскальзывания. Журналы не менялись. Проверяемый режим основного: ${momentumInput.checked ? "скорость/ускорение ВКЛ" : "скорость/ускорение ВЫКЛ"}.${zeroReason}`;
       validRun = true;
       canApply();
-      $("backtestApplyStatus").textContent = "Бэктест готов. Отметь, куда применить настройки; остальные модули останутся без изменений.";
+      $("backtestApplyStatus").textContent = "Бэктест готов. Можно применить выбранные стратегии/совпадения; фильтр скорости из бэктеста не переносится в действующую торговлю — для неё отдельная кнопка во вкладке «Рынок».";
     } catch (e) { status.textContent = "Бэктест не выполнен: " + e.message; }
     finally { run.disabled = false; }
   });
