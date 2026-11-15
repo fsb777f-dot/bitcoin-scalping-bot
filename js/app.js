@@ -10,12 +10,30 @@ const fmt=n=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n))?Number(
 const WORKER="https://bitcoin-scalping-bot.fsb777f.workers.dev";
 let tf="1m",chart=createMarketChart($("chart")),settings=null,serverState=null,polling=false,previousPrice=null;
 let aiJournalLoading=false,demoJournalLoading=false,demoRows=[],demoShown=50;
+let momentumEnabled=false,momentumReady=false;
 const safe=s=>String(s??"—").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
 const journal=createJournal(supabase);
 initGptStrategyUi(WORKER);
 const terminal=initTradingTerminal(supabase,journal);
 const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),consensus_enabled:true,required_matches:3,risk_reward:2,ai_enabled:false,execution_mode:"VIRTUAL",trade_size:null});
 function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"TradingView график":"График не загрузился")}
+function syncMomentumControl(){
+ $("momentumEnabled").checked=momentumEnabled;
+ $("momentumEnabled").disabled=!momentumReady;
+ $("momentumNote").textContent=momentumReady
+  ? (momentumEnabled
+    ? "ВКЛ · новые сделки основного бота (виртуальные и MAIN DEMO) требуют совпадения скорости/ускорения цены с голосованием стратегий. AI и «Тест» не изменены."
+    : "ВЫКЛ · основной бот работает по прежним 41 стратегиям. AI и «Тест» не изменены.")
+  : "Статус фильтра пока недоступен. Переключатель заблокирован, чтобы избежать несохранённых изменений.";
+}
+async function loadMomentumMode(){
+ const response=await fetch(WORKER+"/api/momentum-mode",{cache:"no-store"});
+ const result=await response.json().catch(()=>({}));
+ if(!response.ok||typeof result.enabled!=="boolean")throw new Error(result.error||"Не удалось прочитать режим");
+ momentumEnabled=result.enabled;
+ momentumReady=true;
+ syncMomentumControl();
+}
 function syncControls(){
  if(!settings)return;
  $("consensusEnabled").checked=true;
@@ -241,6 +259,27 @@ $("strategies").addEventListener("click",async e=>{
  syncControls();renderStrategies();
  try{await saveSettings()}catch(err){settings.enabled_strategies[i]=!settings.enabled_strategies[i];syncControls();renderStrategies();alert("Не удалось сохранить настройки: "+err.message)}
 });
+$("momentumEnabled").addEventListener("change",async e=>{
+ const enabled=e.target.checked;
+ e.target.disabled=true;
+ const warning=enabled
+  ? "Включить экспериментальный фильтр? Он может уменьшить число входов. Если основной Capital.com DEMO активен, его НОВЫЕ ордера тоже будут отфильтрованы. AI и «Тест» не меняются."
+  : "Выключить экспериментальный фильтр и вернуть обычные сигналы основного бота? Открытые сделки и журналы не затрагиваются.";
+ if(!confirm(warning)){syncMomentumControl();return}
+ const pin=prompt("Введите личный PIN управления для изменения фильтра:");
+ if(!pin){syncMomentumControl();return}
+ try{
+  const response=await fetch(WORKER+"/api/momentum-mode",{
+   method:"POST",headers:{"Content-Type":"application/json","X-Execution-Control":pin},
+   body:JSON.stringify({enabled})
+  });
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(result.error||"Не удалось сохранить фильтр");
+  momentumEnabled=result.enabled===true;
+  $("cloudStatus").textContent="Фильтр скорости/ускорения сохранён · сервер учтёт при следующем сканировании";
+ }catch(error){alert("Фильтр не изменён: "+error.message)}
+ syncMomentumControl();
+});
 $("mainDemoEnabled").addEventListener("change",async e=>{
  const old=settings.execution_mode;
  try{await setExecutionMode(e.target.checked?"MAIN_DEMO":"VIRTUAL")}
@@ -361,6 +400,7 @@ document.querySelectorAll(".nav [data-view]").forEach(b=>b.addEventListener("cli
  try{
   await journal.init();
   await loadSettings();
+  try{await loadMomentumMode()}catch(error){syncMomentumControl();$("momentumNote").textContent="Нет связи с настройкой фильтра: "+error.message}
   initBitcoinBacktest(()=>settings,WORKER,async preset=>{
    settings.enabled_strategies=preset.enabled.slice();
    settings.required_matches=preset.minMatches;
