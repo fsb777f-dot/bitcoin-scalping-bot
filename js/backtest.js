@@ -1,4 +1,5 @@
 import { buildContext } from "./indicators.js";
+import { candleMomentum, momentumConfirms } from "./momentum-filter.js";
 import { strategies, names } from "../strategies/index.js";
 import { spreadSafeStopDistance, virtualTargetTrailUpdate, virtualStopFill } from "../worker/partial-profit.js";
 
@@ -31,7 +32,7 @@ function simulate(candles, steps, sideFor, rr, id, label, positionSize, tradeCos
   for (let i = 240; i < candles.length; i++) {
     const bar = candles[i], step = steps[i];
     if (!step) continue;
-    const side = sideFor(step.votes);
+    const side = sideFor(step.votes, step.momentum);
     if ((side === "BUY" || side === "SELL") && step.atr > 0) {
       const entry = side === "BUY" ? bar.askOpen : bar.bidOpen;
       const spread = Math.max(0, bar.askOpen - bar.bidOpen);
@@ -89,17 +90,24 @@ export function backtestBitcoin(candles, { enabled, minMatches, riskReward, posi
   // Use only completed candles before each entry; never inspect future bars.
   const steps = [];
   for (let i = 240; i < candles.length; i++) {
-    const context = buildContext(candles.slice(i - 240, i));
-    steps[i] = { atr: context.atr, votes: strategies.map(strategy => {
+    const priorCandles = candles.slice(i - 240, i);
+    const context = buildContext(priorCandles);
+    steps[i] = { atr: context.atr, momentum: candleMomentum(priorCandles, context.atr),
+      votes: strategies.map(strategy => {
       try { return strategy(context); } catch { return "WAIT"; }
     }) };
   }
-  const main = simulate(candles, steps, votes => vote(votes, enabled, minMatches), riskReward, "main", "Основной · совпадения", positionSize, tradeCostUsd);
+  const main = simulate(candles, steps, votes => vote(votes, enabled, minMatches), riskReward, "main", "Основной · без фильтра", positionSize, tradeCostUsd);
+  const momentum = simulate(candles, steps,
+    (votes, motion) => {
+      const side = vote(votes, enabled, minMatches);
+      return momentumConfirms(side, motion) ? side : "WAIT";
+    }, riskReward, "momentum", "Основной · с фильтром скорости", positionSize, tradeCostUsd);
   const ai = simulate(candles, steps, votes => aiVote(votes, enabled), riskReward, "ai", "AI · выбранные стратегии, равные веса (приближённо)", positionSize, tradeCostUsd);
   const perStrategy = names.map((name, i) => ({ name, enabled: enabled[i],
     ...simulate(candles, steps, votes => votes[i], riskReward, "strategy_" + i, name, positionSize, tradeCostUsd) }));
   return { candles: candles.length, from: candles[240].time, to: candles.at(-1).time,
-    positionSize, tradeCostUsd, main, ai, perStrategy };
+    positionSize, tradeCostUsd, main, momentum, ai, perStrategy };
 }
 
 const text = n => n == null ? "—" : Number(n).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
@@ -237,7 +245,8 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
       await new Promise(resolve => setTimeout(resolve, 0));
       const result = backtestBitcoin(history.candles, { enabled, minMatches: Number(minimumControl.value),
         riskReward: Number($("backtestRiskReward").value), positionSize, tradeCostUsd });
-      $("backtestResults").innerHTML = summary(result.main, positionSize) + summary(result.ai, positionSize);
+      $("backtestResults").innerHTML = summary(result.main, positionSize)
+        + summary(result.momentum, positionSize) + summary(result.ai, positionSize);
       showStrategies(result.perStrategy);
       const zeroReason = result.main.total === 0 ? ` Основной: 0 сделок — порог ${minimumControl.value} не был достигнут при ${enabled.filter(Boolean).length} выбранных стратегиях.` : "";
       status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Размер сделки: ${positionSize} BTC. Доп. расходы: ${tradeCostUsd} USD/закрытую сделку. Расчёт по Bid/Ask и спреду, без автоматического учёта финансирования и дополнительного проскальзывания. Журналы не менялись.${zeroReason}`;

@@ -1,4 +1,5 @@
 import { buildContext } from "../js/indicators.js";
+import { candleMomentum, momentumConfirms } from "../js/momentum-filter.js";
 import { runGptScan, gptStatus } from "./gpt-strategy.js";
 import { gptStrategyPage } from "./gpt-strategy-page.js";
 import { strategies, names } from "../strategies/index.js";
@@ -55,9 +56,18 @@ async function getSettings(env) {
   const s = rows?.[0] || {};
   const enabled = Array.isArray(s.enabled_strategies) && s.enabled_strategies.length === names.length
     ? s.enabled_strategies.map(Boolean) : names.map(() => true);
+  let momentumEnabled = false;
+  try {
+    const rows = await db(env, "test_settings?id=eq.1&select=enabled");
+    momentumEnabled = rows?.[0]?.enabled?.momentum_filter === true;
+  } catch (error) {
+    // Fail open to the existing classic strategy logic if experimental settings are unavailable.
+    console.warn("Momentum settings unavailable; keeping classic signals", error?.message || String(error));
+  }
   return {
     timeframe: ["1m", "5m", "15m"].includes(s.timeframe) ? s.timeframe : "1m",
     aiEnabled: s.ai_enabled === true,
+    momentumEnabled,
     enabled,
     consensusEnabled: true,
     requiredMatches: clamp(s.required_matches ?? 3, 1, names.length),
@@ -460,8 +470,12 @@ async function runScan(env) {
   const required = settings.requiredMatches;
   const buys = results.filter((s, i) => settings.enabled[i] && s === "BUY").length;
   const sells = results.filter((s, i) => settings.enabled[i] && s === "SELL").length;
-  const normalSide = buys >= required && buys > sells ? "BUY"
+  const classicSide = buys >= required && buys > sells ? "BUY"
     : sells >= required && sells > buys ? "SELL" : "WAIT";
+  const momentum = settings.momentumEnabled ? candleMomentum(candles, context.atr) : null;
+  // Never create an extra signal: the opt-in filter can only reject classic entries.
+  const normalSide = settings.momentumEnabled && !momentumConfirms(classicSide, momentum)
+    ? "WAIT" : classicSide;
   try {
     const sync = await syncCapitalDemoTrades(env);
     if (sync.closed || sync.unresolved) console.log("Capital.com DEMO journal sync", sync);
@@ -638,6 +652,28 @@ export default {
     if (url.pathname === "/api/capital-demo/market-bundle" && request.method === "GET") {
       try { return reply(await capitalDemoMarketBundle(env)); }
       catch (e) { return reply({ error: e?.message || "Capital.com Demo multi-timeframe data failed" }, 502); }
+    }
+    if (url.pathname === "/api/momentum-mode") {
+      try {
+        const rows = await db(env, "test_settings?id=eq.1&select=enabled");
+        const stored = rows?.[0]?.enabled;
+        const flags = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+        if (request.method === "GET") return reply({ enabled: flags.momentum_filter === true });
+        if (request.method !== "POST") return reply({ error: "Method not allowed" }, 405);
+        if (!env.EXECUTION_CONTROL_PIN) return reply({ error: "PIN управления не настроен." }, 503);
+        if (request.headers.get("X-Execution-Control") !== env.EXECUTION_CONTROL_PIN)
+          return reply({ error: "Неверный PIN управления." }, 401);
+        const body = await request.json();
+        if (typeof body?.enabled !== "boolean") return reply({ error: "Нужен флаг enabled: true/false" }, 400);
+        const updated = { ...flags, momentum_filter: body.enabled };
+        await db(env, "test_settings?on_conflict=id", {
+          method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({ id: 1, enabled: updated, updated_at: new Date().toISOString() })
+        });
+        return reply({ ok: true, enabled: body.enabled });
+      } catch (error) {
+        return reply({ error: error?.message || "Ошибка сохранения фильтра" }, 500);
+      }
     }
     if (url.pathname === "/api/backtest-history" && request.method === "GET") {
       const timeframe = url.searchParams.get("timeframe") || "1m";
