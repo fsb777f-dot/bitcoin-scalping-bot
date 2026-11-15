@@ -20,6 +20,7 @@ export function validGlobalBacktestPreset(p, strategyCount) {
   return p && typeof p === "object" && !Array.isArray(p)
     && Array.isArray(p.enabled) && p.enabled.length === strategyCount
     && p.enabled.some(Boolean) && p.enabled.every(value => typeof value === "boolean")
+    && p.minMatches <= p.enabled.filter(Boolean).length
     && ["1m", "5m", "15m"].includes(p.timeframe)
     && [1, 1.5, 2, 2.5, 3, 4].includes(p.riskReward)
     && Number.isInteger(p.minMatches) && p.minMatches >= 1 && p.minMatches <= strategyCount
