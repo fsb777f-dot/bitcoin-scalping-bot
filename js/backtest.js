@@ -1,6 +1,6 @@
 import { buildContext } from "./indicators.js";
 import { candleMomentum, momentumConfirms } from "./momentum-filter.js";
-import { backtestBreakevenTrailUpdate } from "./backtest-risk.js";
+import { backtestBreakevenTrailUpdate, backtestHybridTrailUpdate } from "./backtest-risk.js";
 import { strategies, names } from "../strategies/index.js";
 import { spreadSafeStopDistance, virtualTargetTrailUpdate, virtualStopFill } from "../worker/partial-profit.js";
 
@@ -43,7 +43,8 @@ function simulate(candles, steps, sideFor, rr, id, label, positionSize, tradeCos
       const tp = side === "BUY" ? entry + distance * rr : entry - distance * rr;
       open.push({ side, entry, sl: side === "BUY" ? entry - distance : entry + distance,
         tp, initial_tp: tp, opened: bar.time, trailing_active: false,
-        ...(breakevenAtR === null ? {} : { initial_risk: distance, breakeven_active: false }) });
+        ...(breakevenAtR === null ? {} : { initial_risk: distance, breakeven_active: false }),
+        ...(breakevenAtR === "hybrid" ? { trailing_distance: distance, hybrid_tp_active: false } : {}) });
       total++;
     }
     for (let j = open.length - 1; j >= 0; j--) {
@@ -61,9 +62,11 @@ function simulate(candles, steps, sideFor, rr, id, label, positionSize, tradeCos
       } else {
         // A stop change made at the completed bar close can only affect the next bar.
         const executableClose = buy ? bar.bidClose : bar.askClose;
-        const update = breakevenAtR === null
-          ? virtualTargetTrailUpdate(trade, executableClose)
-          : backtestBreakevenTrailUpdate(trade, executableClose, breakevenAtR);
+        const update = breakevenAtR === "hybrid"
+          ? backtestHybridTrailUpdate(trade, executableClose)
+          : breakevenAtR === null
+            ? virtualTargetTrailUpdate(trade, executableClose)
+            : backtestBreakevenTrailUpdate(trade, executableClose, breakevenAtR);
         if (update) Object.assign(trade, update);
       }
     }
@@ -97,7 +100,7 @@ export function backtestBitcoin(candles, { enabled, minMatches, riskReward, posi
   if (!Number.isFinite(tradeCostUsd) || tradeCostUsd < 0)
     throw new Error("Укажи неотрицательные расходы на сделку в USD");
   if (!optimization || ![1, 1.2, 1.5].includes(optimization.atrMultiplier)
-    || ![null, 1, 1.5, 2].includes(optimization.breakevenAtR)
+    || ![null, 1, 1.5, 2, "hybrid"].includes(optimization.breakevenAtR)
     || typeof momentumEnabled !== "boolean")
     throw new Error("Неверный выбор ATR или режима сопровождения стопа");
   // Use only completed candles before each entry; never inspect future bars.
@@ -116,19 +119,27 @@ export function backtestBitcoin(candles, { enabled, minMatches, riskReward, posi
       const side = vote(votes, enabled, minMatches);
       return momentumConfirms(side, motion) ? side : "WAIT";
     }, riskReward, "momentum", "Основной · с фильтром скорости", positionSize, tradeCostUsd);
-  const optimized = simulate(candles, steps,
-    (votes, motion) => {
-      const side = vote(votes, enabled, minMatches);
-      return momentumEnabled && !momentumConfirms(side, motion) ? "WAIT" : side;
-    }, riskReward, "optimized",
+  const selectedSide = (votes, motion) => {
+    const side = vote(votes, enabled, minMatches);
+    return momentumEnabled && !momentumConfirms(side, motion) ? "WAIT" : side;
+  };
+  const optimized = simulate(candles, steps, selectedSide, riskReward, "optimized",
     "Эксперимент · ATR " + optimization.atrMultiplier + " · "
-      + (optimization.breakevenAtR == null ? "текущее сопровождение TP" : "безубыток при " + optimization.breakevenAtR + "R"),
+      + (optimization.breakevenAtR === "hybrid" ? "Гибридный SL · BE 1,5R → TP → trailing"
+        : optimization.breakevenAtR == null ? "текущее сопровождение TP"
+        : "безубыток при " + optimization.breakevenAtR + "R"),
     positionSize, tradeCostUsd, optimization);
+  // Same ATR, same entry signals, same costs: isolates whether hybrid exits help.
+  const sameAtrLegacy = optimization.breakevenAtR === "hybrid"
+    ? simulate(candles, steps, selectedSide, riskReward, "same-atr-legacy",
+        "Сравнение · ATR " + optimization.atrMultiplier + " · старое сопровождение TP",
+        positionSize, tradeCostUsd, { atrMultiplier: optimization.atrMultiplier })
+    : null;
   const ai = simulate(candles, steps, votes => aiVote(votes, enabled), riskReward, "ai", "AI · выбранные стратегии, равные веса (приближённо)", positionSize, tradeCostUsd);
   const perStrategy = names.map((name, i) => ({ name, enabled: enabled[i],
     ...simulate(candles, steps, votes => votes[i], riskReward, "strategy_" + i, name, positionSize, tradeCostUsd) }));
   return { candles: candles.length, from: candles[240].time, to: candles.at(-1).time,
-    positionSize, tradeCostUsd, main, momentum, optimized, ai, perStrategy };
+    positionSize, tradeCostUsd, main, momentum, optimized, sameAtrLegacy, ai, perStrategy };
 }
 
 const text = n => n == null ? "—" : Number(n).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
@@ -153,7 +164,7 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
     const savedAtr = Number(localStorage.getItem("btc-backtest-atr-multiplier"));
     if ([1, 1.2, 1.5].includes(savedAtr)) atrInput.value = String(savedAtr);
     const savedExit = localStorage.getItem("btc-backtest-breakeven-r");
-    if (["legacy", "1", "1.5", "2"].includes(savedExit)) exitInput.value = savedExit;
+    if (["legacy", "1", "1.5", "2", "hybrid"].includes(savedExit)) exitInput.value = savedExit;
   } catch {}
   let savedMomentum = false;
   try { savedMomentum = localStorage.getItem("btc-backtest-momentum-enabled") === "true"; } catch {}
@@ -299,7 +310,8 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
       // Yield once so the progress label becomes visible before the CPU-intensive calculation.
       await new Promise(resolve => setTimeout(resolve, 0));
       const optimization = { atrMultiplier: Number(atrInput.value),
-        breakevenAtR: exitInput.value === "legacy" ? null : Number(exitInput.value) };
+        breakevenAtR: exitInput.value === "legacy" ? null
+          : exitInput.value === "hybrid" ? "hybrid" : Number(exitInput.value) };
       const result = backtestBitcoin(history.candles, { enabled, minMatches: Number(minimumControl.value),
         riskReward: Number($("backtestRiskReward").value), positionSize, tradeCostUsd,
         momentumEnabled: momentumInput.checked, optimization });
@@ -309,11 +321,14 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
         ...selectedMode, label: "Контрольный вариант · ATR 1,2 · текущее сопровождение · "
           + (momentumInput.checked ? "с ускорением" : "без ускорения")
       }, positionSize) + summary(result.optimized, positionSize)
+        + (result.sameAtrLegacy ? summary(result.sameAtrLegacy, positionSize) : "")
         + summary({ ...alternativeMode, label: "Другой режим ускорения · " + alternativeMode.label }, positionSize)
         + summary(result.ai, positionSize);
       showStrategies(result.perStrategy);
       const zeroReason = result.main.total === 0 ? ` Основной: 0 сделок — порог ${minimumControl.value} не был достигнут при ${enabled.filter(Boolean).length} выбранных стратегиях.` : "";
-      status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Размер сделки: ${positionSize} BTC. Доп. расходы: ${tradeCostUsd} USD/закрытую сделку. Расчёт по Bid/Ask и спреду, без автоматического учёта финансирования и дополнительного проскальзывания. Журналы не менялись. Контрольный вариант: ATR 1,2 и прежнее сопровождение. Эксперимент: ATR ${optimization.atrMultiplier}, безубыток ${optimization.breakevenAtR == null ? "по текущему TP" : "при " + optimization.breakevenAtR + "R"}. Ускорение: ${momentumInput.checked ? "ВКЛ" : "ВЫКЛ"}.${zeroReason}`;
+      status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Размер сделки: ${positionSize} BTC. Доп. расходы: ${tradeCostUsd} USD/закрытую сделку. Расчёт по Bid/Ask и спреду, без автоматического учёта финансирования и дополнительного проскальзывания. Журналы не менялись. Контрольный вариант: ATR 1,2 и прежнее сопровождение. Эксперимент: ATR ${optimization.atrMultiplier}, ${optimization.breakevenAtR === "hybrid"
+        ? "гибридный SL (безубыток при +1,5R, стоп на TP и затем trailing)"
+        : optimization.breakevenAtR == null ? "старое сопровождение от TP" : "безубыток при " + optimization.breakevenAtR + "R"}. Ускорение: ${momentumInput.checked ? "ВКЛ" : "ВЫКЛ"}.${zeroReason}`;
       validRun = true;
       canApply();
       $("backtestApplyStatus").textContent = "Сравнение готово. Кнопка «Применить» передаёт только прежние настройки стратегий, совпадений и R/R. Экспериментальные ATR и безубыток не переносятся в живую торговлю.";
