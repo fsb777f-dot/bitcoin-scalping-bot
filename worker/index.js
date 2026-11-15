@@ -705,7 +705,8 @@ export default {
           return reply({ error: "Неверный PIN управления." }, 401);
         const body = await request.json();
         if (typeof body?.enabled !== "boolean") return reply({ error: "Нужен флаг enabled: true/false" }, 400);
-        const updated = { ...flags, momentum_filter: body.enabled };
+        const updated = { ...flags, momentum_filter: body.enabled,
+          ...(flags.trade_execution ? { ai_momentum_filter: body.enabled } : {}) };
         await db(env, "test_settings?on_conflict=id", {
           method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
           body: JSON.stringify({ id: 1, enabled: updated, updated_at: new Date().toISOString() })
@@ -743,6 +744,88 @@ export default {
       } catch (e) {
         if (saved) return reply({ ...saved, stale: true, warning: "Capital.com временно ограничил запросы; показана сохранённая история." });
         return reply({ error: e?.message || "Capital.com history unavailable" }, 502);
+      }
+    }
+    if (url.pathname === "/api/backtest-global-preset" && request.method === "GET") {
+      try {
+        const rows = await db(env, "test_settings?id=eq.1&select=enabled");
+        return reply({ active: rows?.[0]?.enabled?.trade_execution || null });
+      } catch (error) {
+        return reply({ error: error?.message || "Нельзя прочитать общие настройки" }, 503);
+      }
+    }
+    if (url.pathname === "/api/backtest-apply-all" && request.method === "POST") {
+      try {
+        if (!env.EXECUTION_CONTROL_PIN)
+          return reply({ error: "PIN управления не настроен на сервере." }, 503);
+        if (request.headers.get("X-Execution-Control") !== env.EXECUTION_CONTROL_PIN)
+          return reply({ error: "Неверный PIN управления." }, 401);
+        const { preset } = await request.json();
+        if (!validGlobalBacktestPreset(preset, names.length))
+          return reply({ error: "Некорректные настройки бэктеста или размер BTC." }, 400);
+        const [savedBot, savedFlags] = await Promise.all([
+          db(env, "bot_settings?id=eq.1&select=*"),
+          db(env, "test_settings?id=eq.1&select=enabled")
+        ]);
+        const original = savedBot?.[0];
+        if (!original) return reply({ error: "Основные настройки бота в Supabase не найдены." }, 409);
+        const stored = savedFlags?.[0]?.enabled;
+        const flags = stored && typeof stored === "object" && !Array.isArray(stored)
+          ? { ...stored } : {};
+        const stamp = new Date().toISOString();
+        // Deliberately leave execution_mode and ai_enabled unchanged; never enable DEMO/AI.
+        const updatedBot = {
+          timeframe: preset.timeframe, enabled_strategies: preset.enabled,
+          required_matches: preset.minMatches, risk_reward: preset.riskReward,
+          trade_size: preset.positionSize, updated_at: stamp
+        };
+        const updatedFlags = {
+          ...flags, momentum_filter: preset.momentumEnabled,
+          ai_momentum_filter: preset.momentumEnabled,
+          ai_backtest: { enabled: preset.enabled, applied_at: stamp },
+          trade_execution: {
+            atrMultiplier: preset.atrMultiplier, breakevenAtR: preset.breakevenAtR,
+            card: preset.card, applied_at: stamp, timeframe: preset.timeframe,
+            riskReward: preset.riskReward, minMatches: preset.minMatches,
+            positionSize: preset.positionSize, momentumEnabled: preset.momentumEnabled
+          }
+        };
+        await db(env, "bot_settings?id=eq.1", {
+          method: "PATCH", headers: { Prefer: "return=minimal" },
+          body: JSON.stringify(updatedBot)
+        });
+        try {
+          await db(env, "test_settings?on_conflict=id", {
+            method: "POST",
+            headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+            body: JSON.stringify({ id: 1, enabled: updatedFlags, updated_at: stamp })
+          });
+        } catch (error) {
+          // Best-effort rollback of already updated entry controls; no false success.
+          let rollbackError = null;
+          try {
+            await db(env, "bot_settings?id=eq.1", {
+              method: "PATCH", headers: { Prefer: "return=minimal" },
+              body: JSON.stringify({
+                timeframe: original.timeframe, enabled_strategies: original.enabled_strategies,
+                required_matches: original.required_matches, risk_reward: original.risk_reward,
+                trade_size: original.trade_size, updated_at: new Date().toISOString()
+              })
+            });
+          } catch (failure) { rollbackError = failure?.message || String(failure); }
+          return reply({ error: "Не удалось сохранить общие настройки: "
+            + (error?.message || String(error))
+            + (rollbackError ? ". Внимание: откат настроек не удался: " + rollbackError : ". Основные настройки возвращены.") }, 500);
+        }
+        return reply({
+          ok: true, applied_to: ["MAIN_VIRTUAL", "MAIN_DEMO", "AI_VIRTUAL", "AI_DEMO"],
+          card: preset.card, active: updatedFlags.trade_execution,
+          execution_mode: original.execution_mode || "VIRTUAL",
+          ai_enabled: original.ai_enabled === true,
+          note: "Новые сделки используют выбранные ATR/выход и размер. DEMO/AI не включались; открытые позиции не изменены."
+        });
+      } catch (error) {
+        return reply({ error: "Ошибка общего применения: " + (error?.message || String(error)) }, 500);
       }
     }
     if (url.pathname === "/api/backtest-apply" && request.method === "POST") {
