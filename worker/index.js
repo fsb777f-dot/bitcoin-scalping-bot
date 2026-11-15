@@ -1,5 +1,8 @@
 import { buildContext } from "../js/indicators.js";
 import { candleMomentum, momentumConfirms } from "../js/momentum-filter.js";
+import { backtestBreakevenTrailUpdate, backtestHybridTrailUpdate } from "../js/backtest-risk.js";
+import { exitProfileOfTrade, tradeWithExitProfile, validBacktestExit,
+  validGlobalBacktestPreset } from "./trade-preset.js";
 import { runGptScan, gptStatus } from "./gpt-strategy.js";
 import { gptStrategyPage } from "./gpt-strategy-page.js";
 import { strategies, names } from "../strategies/index.js";
@@ -56,10 +59,15 @@ async function getSettings(env) {
   const s = rows?.[0] || {};
   const enabled = Array.isArray(s.enabled_strategies) && s.enabled_strategies.length === names.length
     ? s.enabled_strategies.map(Boolean) : names.map(() => true);
-  let momentumEnabled = false;
+  let momentumEnabled = false, aiMomentumEnabled = false, appliedRisk = null;
   try {
     const rows = await db(env, "test_settings?id=eq.1&select=enabled");
-    momentumEnabled = rows?.[0]?.enabled?.momentum_filter === true;
+    const flags = rows?.[0]?.enabled || {};
+    momentumEnabled = flags.momentum_filter === true;
+    aiMomentumEnabled = flags.ai_momentum_filter === true;
+    const active = flags.trade_execution;
+    if (active && [1, 1.2, 1.5].includes(active.atrMultiplier)
+        && validBacktestExit(active.breakevenAtR)) appliedRisk = active;
   } catch (error) {
     // Fail open to the existing classic strategy logic if experimental settings are unavailable.
     console.warn("Momentum settings unavailable; keeping classic signals", error?.message || String(error));
@@ -67,7 +75,9 @@ async function getSettings(env) {
   return {
     timeframe: ["1m", "5m", "15m"].includes(s.timeframe) ? s.timeframe : "1m",
     aiEnabled: s.ai_enabled === true,
-    momentumEnabled,
+    momentumEnabled, aiMomentumEnabled,
+    appliedRisk, atrMultiplier: appliedRisk?.atrMultiplier ?? 1.2,
+    exitProfile: appliedRisk?.breakevenAtR ?? null,
     enabled,
     consensusEnabled: true,
     requiredMatches: clamp(s.required_matches ?? 3, 1, names.length),
@@ -343,7 +353,7 @@ async function syncCapitalDemoTrades(env) {
   if (!trades?.length) return { checked: 0, stillOpen: 0, closed: 0, unresolved: 0 };
   return capitalDemoReconcile(env, trades);
 }
-async function updateOpenTrades(env, bid, ask) {
+async function updateOpenTrades(env, bid, ask, completedCandle = null, newCandle = false) {
   const open = await db(env, "trades?status=eq.OPEN&select=*");
   const spread = Math.max(0, Number(ask) - Number(bid));
   for (const t of open || []) {
@@ -370,7 +380,18 @@ async function updateOpenTrades(env, bid, ask) {
       if (update) await patchTrade(env, t.trade_key, update);
       continue;
     }
-    const update = virtualTargetTrailUpdate(t, price);
+    const preset = exitProfileOfTrade(t.trade_key);
+    let update;
+    if (!preset.applied) {
+      update = virtualTargetTrailUpdate(t, price); // Old positions: do not change exit rules.
+    } else if (newCandle && completedCandle) {
+      const barQuote = buy ? completedCandle.bidClose : completedCandle.askClose;
+      const trade = { ...t, initial_risk: risk, breakeven_active: t.trailing_active === true };
+      update = preset.exitProfile === "hybrid"
+        ? backtestHybridTrailUpdate(trade, barQuote)
+        : preset.exitProfile === null ? virtualTargetTrailUpdate(trade, barQuote)
+        : backtestBreakevenTrailUpdate(trade, barQuote, preset.exitProfile);
+    }
     if (!update) continue;
     const nextStop = update.sl;
     if (isDemo) {
@@ -386,7 +407,9 @@ async function updateOpenTrades(env, bid, ask) {
         console.error("Capital.com trailing stop update failed", t.trade_key, error?.message || String(error));
       }
     } else {
-      await patchTrade(env, t.trade_key, update);
+      // Do not write experimental helper fields to Supabase's existing trade schema.
+      await patchTrade(env, t.trade_key, preset.applied
+        ? { sl: nextStop, trailing_active: true } : update);
     }
   }
 }
@@ -465,6 +488,8 @@ async function runScan(env) {
   const { candles, price, source } = market;
   if (candles.length < 60) throw new Error("Not enough completed candles");
   const context = buildContext(candles);
+  const candle = candles[candles.length - 1];
+  const newCandle = candle.time > Number(previousState.candle_time || 0);
   const results = strategies.map(fn => { try { return fn(context); } catch { return "WAIT"; } });
   const activeCount = settings.enabled.filter(Boolean).length;
   const required = settings.requiredMatches;
@@ -472,7 +497,8 @@ async function runScan(env) {
   const sells = results.filter((s, i) => settings.enabled[i] && s === "SELL").length;
   const classicSide = buys >= required && buys > sells ? "BUY"
     : sells >= required && sells > buys ? "SELL" : "WAIT";
-  const momentum = settings.momentumEnabled ? candleMomentum(candles, context.atr) : null;
+  const momentum = (settings.momentumEnabled || settings.aiMomentumEnabled)
+    ? candleMomentum(candles, context.atr) : null;
   // Never create an extra signal: the opt-in filter can only reject classic entries.
   const normalSide = settings.momentumEnabled && !momentumConfirms(classicSide, momentum)
     ? "WAIT" : classicSide;
@@ -483,7 +509,7 @@ async function runScan(env) {
     // A broker-history failure must not cause journal rows to be guessed closed.
     console.error("Capital.com DEMO journal sync failed", error?.message || String(error));
   }
-  await updateOpenTrades(env, market.bid, market.ask);
+  await updateOpenTrades(env, market.bid, market.ask, candle, newCandle);
   let performance = [];
   if (settings.aiEnabled) {
     try {
@@ -501,9 +527,11 @@ async function runScan(env) {
     }
   }
   let ai = settings.aiEnabled ? aiDecision(results, await getAiBacktestWhitelist(env), performance) : null;
-  const candle = candles[candles.length - 1];
+  if (ai && settings.aiMomentumEnabled && !momentumConfirms(ai.side, momentum)) {
+    ai = { ...ai, side: "WAIT", count: 0, selected: [],
+      reason: "Общий фильтр скорости/ускорения не подтвердил сигнал AI." };
+  }
   // Match the earlier paper-trading behavior: AI may enter again on each new candle.
-  const newCandle = candle.time > Number(previousState.candle_time || 0);
   const aiSignalChanged = (ai?.side === "BUY" || ai?.side === "SELL") && newCandle;
   // A string of recent stopped-out AI trades in the same direction signals
   // a poor market regime. Pause new entries briefly, without closing or
@@ -518,7 +546,7 @@ async function runScan(env) {
       && Number(lastThree[0].trade_time) > Date.now() - 10 * 60000;
   }
   const canOpenAiTrade = settings.aiEnabled && aiSignalChanged && !aiLossPause;
-  const atrSlDistance = context.atr * 1.2;
+  const atrSlDistance = context.atr * settings.atrMultiplier;
   // Protective levels use the same ATR distance in every mode and respect live spread.
   const slDistance = spreadSafeStopDistance(atrSlDistance, market.spread);
 
@@ -533,9 +561,16 @@ async function runScan(env) {
   const normalSignalChanged = (normalSide === "BUY" || normalSide === "SELL") && newCandle;
   if (normalSignalChanged) {
     const normalTrade = {
-      trade_key: "server:" + settings.timeframe + ":" + candle.time + ":" + (settings.timeframe === "1m" ? scanMinute + ":" : "") + normalSide,
+      trade_key: settings.appliedRisk
+        ? tradeWithExitProfile("server:" + settings.timeframe + ":" + candle.time + ":"
+          + (settings.timeframe === "1m" ? scanMinute + ":" : "") + normalSide, settings.exitProfile)
+        : "server:" + settings.timeframe + ":" + candle.time + ":"
+          + (settings.timeframe === "1m" ? scanMinute + ":" : "") + normalSide,
       trade_time: scanMinute * 60000, side: normalSide, entry: normalEntry, sl: normalSl, tp: normalTp,
-      initial_tp: normalTp, trailing_distance: Math.abs(normalEntry - normalSl), trailing_active: false,
+      initial_tp: normalTp,
+      trailing_distance: settings.appliedRisk && settings.exitProfile === null
+        ? Math.abs(normalTp - normalEntry) : Math.abs(normalEntry - normalSl),
+      trailing_active: false,
       confirmations: names.filter((_, i) => settings.enabled[i] && results[i] === normalSide),
       exit: null, pnl: null, status: "OPEN", result: null, updated_at: new Date().toISOString()
     };
@@ -566,9 +601,14 @@ async function runScan(env) {
     : aiEntry - slDistance * settings.riskReward) : null;
   if (canOpenAiTrade) {
     const aiTrade = {
-      trade_key: "ai:" + settings.timeframe + ":" + candle.time + ":" + aiSide,
+      trade_key: settings.appliedRisk
+        ? tradeWithExitProfile("ai:" + settings.timeframe + ":" + candle.time + ":" + aiSide, settings.exitProfile)
+        : "ai:" + settings.timeframe + ":" + candle.time + ":" + aiSide,
       trade_time: Date.now(), side: aiSide, entry: aiEntry, sl: aiSl, tp: aiTp,
-      initial_tp: aiTp, trailing_distance: Math.abs(aiEntry - aiSl), trailing_active: false,
+      initial_tp: aiTp,
+      trailing_distance: settings.appliedRisk && settings.exitProfile === null
+        ? Math.abs(aiTp - aiEntry) : Math.abs(aiEntry - aiSl),
+      trailing_active: false,
       confirmations: ai.selected, exit: null, pnl: null, status: "OPEN", result: null,
       updated_at: new Date().toISOString()
     };
