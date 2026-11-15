@@ -416,7 +416,9 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
       try { await onMainApplied(preset); } catch (uiError) {
         console.error("Saved globally, but UI refresh failed", uiError);
       }
-      cardStatus.textContent = "Сохранено! Эти настройки будут действовать для новых сделок основного бота и AI, а также DEMO при его включённом режиме.";
+      cardStatus.textContent = "Сохранено! Настройки будут действовать для новых сделок основного бота и AI, а также DEMO при его включённом режиме."
+        + (result.ai_enabled === false ? " AI сейчас выключен — его нужно включить отдельно." : "")
+        + (result.execution_mode === "VIRTUAL" ? " DEMO остаётся выключенным." : "");
       allStatus.textContent = "Сохранено: выбранный вариант применён к НОВЫМ сделкам основного бота и AI (виртуальные и DEMO при включённом режиме). "
         + "DEMO не включалось, открытые сделки остаются без изменений. "
         + "Исторические результаты не гарантируют такую же прибыль.";
