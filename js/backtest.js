@@ -152,7 +152,7 @@ const summary = (result, positionSize, card) => `<article class="backtest-card">
   + metric("Profit Factor", text(result.profitFactor))
   + metric("Просадка · USD", text(result.maxDrawdown))
   + `</div><p class="notice">Плавающий PnL: ${text(result.floating)} · всего с открытыми: ${text(result.pnl)}</p>`
-  + (card ? `<button type="button" class="backtest-apply-all" data-backtest-card="${card}">Применить ко всей торговле</button>` : "")
+  + (card ? `<button type="button" class="backtest-apply-all" data-backtest-card="${card}">Применить ко всей торговле</button><p class="notice" data-backtest-card-status="${card}"></p>` : "")
   + `</article>`;
 
 export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () => {}) {
@@ -365,6 +365,7 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
   resultsContainer.addEventListener("click", async event => {
     const button = event.target.closest("button[data-backtest-card]");
     if (!button || !validRun || applyingAll) return;
+    const cardStatus = button.parentElement.querySelector("[data-backtest-card-status]");
     const preset = cardPresets.get(button.dataset.backtestCard);
     if (!preset) return;
     const exitDescription = preset.breakevenAtR === null ? "старое сопровождение от TP"
@@ -387,6 +388,7 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
     applyingAll = true;
     resultsContainer.querySelectorAll("[data-backtest-card]").forEach(item => { item.disabled = true; });
     allStatus.textContent = "Передаём настройки основному боту, AI и режимам Capital.com DEMO…";
+    cardStatus.textContent = "Сохраняем настройки выбранного варианта…";
     try {
       const response = await fetch(workerUrl + "/api/backtest-apply-all", {
         method: "POST",
@@ -398,10 +400,12 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
       try { await onMainApplied(preset); } catch (uiError) {
         console.error("Saved globally, but UI refresh failed", uiError);
       }
+      cardStatus.textContent = "Сохранено! Эти настройки будут действовать для новых сделок основного бота и AI, а также DEMO при его включённом режиме.";
       allStatus.textContent = "Сохранено: выбранный вариант применён к НОВЫМ сделкам основного бота и AI (виртуальные и DEMO при включённом режиме). "
         + "DEMO не включалось, открытые сделки остаются без изменений. "
         + "Исторические результаты не гарантируют такую же прибыль.";
     } catch (error) {
+      cardStatus.textContent = "Ошибка применения: " + error.message;
       allStatus.textContent = "Не удалось применить ко всей торговле: " + error.message;
     } finally {
       applyingAll = false;
