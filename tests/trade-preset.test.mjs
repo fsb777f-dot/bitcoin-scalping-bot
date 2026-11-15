@@ -22,7 +22,8 @@ test("invalid or oversized trade sizes, unsupported ATR, missing strategies are 
     { positionSize: 0 }, { positionSize: 0.00105 }, { positionSize: 51 },
     { atrMultiplier: 9 }, { breakevenAtR: "arbitrary" }, { card: "unknown" },
     { enabled: Array(41).fill(false) }, { minMatches: 99 },
-    { momentumEnabled: "true" }, { timeframe: "4h" }
+    { momentumEnabled: "true" }, { timeframe: "4h" },
+    { enabled: [true, ...Array(40).fill(false)], minMatches: 2 }
   ]) {
     assert.equal(validGlobalBacktestPreset({ ...preset(), ...change }, 41), false);
   }
