@@ -10,7 +10,7 @@ const fmt=n=>n!==null&&n!==undefined&&n!==""&&Number.isFinite(Number(n))?Number(
 const WORKER="https://bitcoin-scalping-bot.fsb777f.workers.dev";
 let tf="1m",chart=createMarketChart($("chart")),settings=null,serverState=null,polling=false,previousPrice=null;
 let aiJournalLoading=false,demoJournalLoading=false,demoRows=[],demoShown=50;
-let momentumEnabled=false,momentumReady=false;
+let momentumEnabled=false,aiMomentumEnabled=false,momentumReady=false;
 const safe=s=>String(s??"—").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
 const journal=createJournal(supabase);
 initGptStrategyUi(WORKER);
@@ -22,8 +22,10 @@ function syncMomentumControl(){
  $("momentumEnabled").disabled=!momentumReady;
  $("momentumNote").textContent=momentumReady
   ? (momentumEnabled
-    ? "ВКЛ · новые сделки основного бота (виртуальные и MAIN DEMO) требуют совпадения скорости/ускорения цены с голосованием стратегий. AI и «Тест» не изменены."
-    : "ВЫКЛ · основной бот работает по прежним 41 стратегиям. AI и «Тест» не изменены.")
+    ? "ВКЛ · новые сигналы основного бота требуют подтверждения скорости/ускорения."
+      + (aiMomentumEnabled ? " После общего применения этот фильтр действует и на новые сигналы AI." : " AI не затронут.")
+    : "ВЫКЛ · основной бот без ускорения."
+      + (aiMomentumEnabled ? " Для AI ускорение ещё включено в общем наборе настроек." : " AI без ускорения."))
   : "Статус фильтра пока недоступен. Переключатель заблокирован, чтобы избежать несохранённых изменений.";
 }
 async function loadMomentumMode(){
@@ -31,6 +33,7 @@ async function loadMomentumMode(){
  const result=await response.json().catch(()=>({}));
  if(!response.ok||typeof result.enabled!=="boolean")throw new Error(result.error||"Не удалось прочитать режим");
  momentumEnabled=result.enabled;
+ aiMomentumEnabled=result.ai_enabled===true;
  momentumReady=true;
  syncMomentumControl();
 }
@@ -263,8 +266,8 @@ $("momentumEnabled").addEventListener("change",async e=>{
  const enabled=e.target.checked;
  e.target.disabled=true;
  const warning=enabled
-  ? "Включить экспериментальный фильтр? Он может уменьшить число входов. Если основной Capital.com DEMO активен, его НОВЫЕ ордера тоже будут отфильтрованы. AI и «Тест» не меняются."
-  : "Выключить экспериментальный фильтр и вернуть обычные сигналы основного бота? Открытые сделки и журналы не затрагиваются.";
+  ? "Включить фильтр скорости/ускорения? Он может уменьшить число новых входов. Если ранее применён общий набор из бэктеста, фильтр также влияет на новые сигналы AI и соответствующий DEMO."
+  : "Выключить ускорение для основного бота и для AI, если применён общий набор из бэктеста? Открытые сделки и журналы не затрагиваются.";
  if(!confirm(warning)){syncMomentumControl();return}
  const pin=prompt("Введите личный PIN управления для изменения фильтра:");
  if(!pin){syncMomentumControl();return}
@@ -276,6 +279,7 @@ $("momentumEnabled").addEventListener("change",async e=>{
   const result=await response.json().catch(()=>({}));
   if(!response.ok)throw new Error(result.error||"Не удалось сохранить фильтр");
   momentumEnabled=result.enabled===true;
+  aiMomentumEnabled=result.ai_enabled===true;
   $("cloudStatus").textContent="Фильтр скорости/ускорения сохранён · сервер учтёт при следующем сканировании";
  }catch(error){alert("Фильтр не изменён: "+error.message)}
  syncMomentumControl();
@@ -406,7 +410,9 @@ document.querySelectorAll(".nav [data-view]").forEach(b=>b.addEventListener("cli
    settings.required_matches=preset.minMatches;
    settings.risk_reward=preset.riskReward;
    settings.timeframe=preset.timeframe;
+   if(Number.isFinite(preset.positionSize))settings.trade_size=preset.positionSize;
    tf=preset.timeframe;
+   if(preset.card)try{await loadMomentumMode()}catch(error){console.error("Momentum UI refresh failed:",error)}
    syncControls();renderStrategies();await startChart();
    $("cloudStatus").textContent="Настройки основного бота применены из бэктеста";
   });
