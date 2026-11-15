@@ -343,7 +343,7 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
       const alternativeMode = momentumInput.checked ? result.main : result.momentum;
       const basePreset = {
         enabled: enabled.slice(), timeframe, minMatches: Number(minimumControl.value),
-        riskReward: Number($("backtestRiskReward").value), positionSize,
+        riskReward: Number($("backtestRiskReward").value), positionSize, tradeCostUsd,
         atrMultiplier: 1.2, breakevenAtR: null, momentumEnabled: momentumInput.checked
       };
       cardPresets = new Map([
@@ -391,6 +391,7 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
       + "ATR " + preset.atrMultiplier + " · " + exitDescription + "\n"
       + preset.timeframe + " · минимум " + preset.minMatches + " · R/R 1:" + preset.riskReward + "\n"
       + preset.enabled.filter(Boolean).length + " выбранных стратегий · BTC " + preset.positionSize + "\n"
+      + "Доп. расходы в бэктесте: $" + preset.tradeCostUsd + " (не меняют тариф брокера)\n"
       + "Фильтр скорости/ускорения: " + (preset.momentumEnabled ? "ВКЛ" : "ВЫКЛ") + "\n\n"
       + "Для НОВЫХ сделок основного бота, AI и DEMO, если он уже включён. "
       + "Выбранный размер BTC также станет размером будущих DEMO-ордеров. "
