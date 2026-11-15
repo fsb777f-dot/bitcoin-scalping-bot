@@ -1,5 +1,6 @@
 import { buildContext } from "./indicators.js";
 import { candleMomentum, momentumConfirms } from "./momentum-filter.js";
+import { backtestBreakevenTrailUpdate } from "./backtest-risk.js";
 import { strategies, names } from "../strategies/index.js";
 import { spreadSafeStopDistance, virtualTargetTrailUpdate, virtualStopFill } from "../worker/partial-profit.js";
 
@@ -25,8 +26,10 @@ function aiVote(votes, enabled) {
     : total >= 3 && sells > buys && sells / total >= 0.7 ? "SELL" : "WAIT";
 }
 
-function simulate(candles, steps, sideFor, rr, id, label, positionSize, tradeCostUsd) {
+function simulate(candles, steps, sideFor, rr, id, label, positionSize, tradeCostUsd, exitPlan = {}) {
   const open = [], closedTrades = [];
+  const atrMultiplier = exitPlan.atrMultiplier ?? 1.2;
+  const breakevenAtR = exitPlan.breakevenAtR ?? null;
   let total = 0, realized = 0, wins = 0, losses = 0, grossWins = 0, grossLosses = 0;
   let peak = 0, maxDrawdown = 0;
   for (let i = 240; i < candles.length; i++) {
@@ -36,10 +39,11 @@ function simulate(candles, steps, sideFor, rr, id, label, positionSize, tradeCos
     if ((side === "BUY" || side === "SELL") && step.atr > 0) {
       const entry = side === "BUY" ? bar.askOpen : bar.bidOpen;
       const spread = Math.max(0, bar.askOpen - bar.bidOpen);
-      const distance = spreadSafeStopDistance(step.atr * 1.2, spread);
+      const distance = spreadSafeStopDistance(step.atr * atrMultiplier, spread);
       const tp = side === "BUY" ? entry + distance * rr : entry - distance * rr;
       open.push({ side, entry, sl: side === "BUY" ? entry - distance : entry + distance,
-        tp, initial_tp: tp, opened: bar.time, trailing_active: false });
+        tp, initial_tp: tp, opened: bar.time, trailing_active: false,
+        ...(breakevenAtR === null ? {} : { initial_risk: distance, breakeven_active: false }) });
       total++;
     }
     for (let j = open.length - 1; j >= 0; j--) {
@@ -55,7 +59,11 @@ function simulate(candles, steps, sideFor, rr, id, label, positionSize, tradeCos
         closedTrades.push({ ...trade, exit, pnl, closed: bar.time });
         open.splice(j, 1);
       } else {
-        const update = virtualTargetTrailUpdate(trade, buy ? bar.bidClose : bar.askClose);
+        // A stop change made at the completed bar close can only affect the next bar.
+        const executableClose = buy ? bar.bidClose : bar.askClose;
+        const update = breakevenAtR === null
+          ? virtualTargetTrailUpdate(trade, executableClose)
+          : backtestBreakevenTrailUpdate(trade, executableClose, breakevenAtR);
         if (update) Object.assign(trade, update);
       }
     }
@@ -77,7 +85,8 @@ function simulate(candles, steps, sideFor, rr, id, label, positionSize, tradeCos
     })) };
 }
 
-export function backtestBitcoin(candles, { enabled, minMatches, riskReward, positionSize = 1, tradeCostUsd = 0 }) {
+export function backtestBitcoin(candles, { enabled, minMatches, riskReward, positionSize = 1,
+  tradeCostUsd = 0, optimization = { atrMultiplier: 1.2, breakevenAtR: null }, momentumEnabled = false }) {
   if (!Array.isArray(candles) || candles.length < 250 || !candles.every(quoteValid))
     throw new Error("Для BTC бэктеста нужно минимум 250 корректных свечей Bid/Ask");
   if (!Array.isArray(enabled) || enabled.length !== names.length ||
@@ -87,6 +96,10 @@ export function backtestBitcoin(candles, { enabled, minMatches, riskReward, posi
     throw new Error("Укажи положительный размер позиции BTC");
   if (!Number.isFinite(tradeCostUsd) || tradeCostUsd < 0)
     throw new Error("Укажи неотрицательные расходы на сделку в USD");
+  if (!optimization || ![1, 1.2, 1.5].includes(optimization.atrMultiplier)
+    || ![null, 1, 1.5, 2].includes(optimization.breakevenAtR)
+    || typeof momentumEnabled !== "boolean")
+    throw new Error("Неверный выбор ATR или режима сопровождения стопа");
   // Use only completed candles before each entry; never inspect future bars.
   const steps = [];
   for (let i = 240; i < candles.length; i++) {
@@ -103,11 +116,19 @@ export function backtestBitcoin(candles, { enabled, minMatches, riskReward, posi
       const side = vote(votes, enabled, minMatches);
       return momentumConfirms(side, motion) ? side : "WAIT";
     }, riskReward, "momentum", "Основной · с фильтром скорости", positionSize, tradeCostUsd);
+  const optimized = simulate(candles, steps,
+    (votes, motion) => {
+      const side = vote(votes, enabled, minMatches);
+      return momentumEnabled && !momentumConfirms(side, motion) ? "WAIT" : side;
+    }, riskReward, "optimized",
+    "Эксперимент · ATR " + optimization.atrMultiplier + " · "
+      + (optimization.breakevenAtR == null ? "текущее сопровождение TP" : "безубыток при " + optimization.breakevenAtR + "R"),
+    positionSize, tradeCostUsd, optimization);
   const ai = simulate(candles, steps, votes => aiVote(votes, enabled), riskReward, "ai", "AI · выбранные стратегии, равные веса (приближённо)", positionSize, tradeCostUsd);
   const perStrategy = names.map((name, i) => ({ name, enabled: enabled[i],
     ...simulate(candles, steps, votes => votes[i], riskReward, "strategy_" + i, name, positionSize, tradeCostUsd) }));
   return { candles: candles.length, from: candles[240].time, to: candles.at(-1).time,
-    positionSize, tradeCostUsd, main, momentum, ai, perStrategy };
+    positionSize, tradeCostUsd, main, momentum, optimized, ai, perStrategy };
 }
 
 const text = n => n == null ? "—" : Number(n).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
@@ -126,6 +147,14 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
   const enabled = (getSettings()?.enabled_strategies || names.map(() => true)).slice();
   const apply = $("backtestApply");
   const momentumInput = $("backtestMomentumEnabled");
+  const atrInput = $("backtestAtrMultiplier");
+  const exitInput = $("backtestBreakevenAtR");
+  try {
+    const savedAtr = Number(localStorage.getItem("btc-backtest-atr-multiplier"));
+    if ([1, 1.2, 1.5].includes(savedAtr)) atrInput.value = String(savedAtr);
+    const savedExit = localStorage.getItem("btc-backtest-breakeven-r");
+    if (["legacy", "1", "1.5", "2"].includes(savedExit)) exitInput.value = savedExit;
+  } catch {}
   let savedMomentum = false;
   try { savedMomentum = localStorage.getItem("btc-backtest-momentum-enabled") === "true"; } catch {}
   momentumInput.checked = savedMomentum;
@@ -146,6 +175,14 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
   };
   for (const target of ["Main", "Ai", "Test"]) $("backtestApply" + target).addEventListener("change", canApply);
   for (const control of ["backtestTimeframe", "backtestRiskReward"]) $(control).addEventListener("change", invalidate);
+  for (const control of [atrInput, exitInput]) control.addEventListener("change", () => {
+    try {
+      localStorage.setItem("btc-backtest-atr-multiplier", atrInput.value);
+      localStorage.setItem("btc-backtest-breakeven-r", exitInput.value);
+    } catch {}
+    invalidate();
+    $("backtestStatus").textContent = "Настройки ATR / сопровождения изменены. Запусти бэктест заново.";
+  });
   momentumInput.addEventListener("change", () => {
     try { localStorage.setItem("btc-backtest-momentum-enabled", String(momentumInput.checked)); } catch {}
     updateMomentumNote();
@@ -261,21 +298,25 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
       status.textContent = "Рассчитываем 41 стратегию на устройстве…";
       // Yield once so the progress label becomes visible before the CPU-intensive calculation.
       await new Promise(resolve => setTimeout(resolve, 0));
+      const optimization = { atrMultiplier: Number(atrInput.value),
+        breakevenAtR: exitInput.value === "legacy" ? null : Number(exitInput.value) };
       const result = backtestBitcoin(history.candles, { enabled, minMatches: Number(minimumControl.value),
-        riskReward: Number($("backtestRiskReward").value), positionSize, tradeCostUsd });
+        riskReward: Number($("backtestRiskReward").value), positionSize, tradeCostUsd,
+        momentumEnabled: momentumInput.checked, optimization });
       const selectedMode = momentumInput.checked ? result.momentum : result.main;
       const alternativeMode = momentumInput.checked ? result.main : result.momentum;
       $("backtestResults").innerHTML = summary({
-        ...selectedMode, label: "Выбранный вариант · " + selectedMode.label
-      }, positionSize) + summary({
-        ...alternativeMode, label: "Для сравнения · " + alternativeMode.label
-      }, positionSize) + summary(result.ai, positionSize);
+        ...selectedMode, label: "Контрольный вариант · ATR 1,2 · текущее сопровождение · "
+          + (momentumInput.checked ? "с ускорением" : "без ускорения")
+      }, positionSize) + summary(result.optimized, positionSize)
+        + summary({ ...alternativeMode, label: "Другой режим ускорения · " + alternativeMode.label }, positionSize)
+        + summary(result.ai, positionSize);
       showStrategies(result.perStrategy);
       const zeroReason = result.main.total === 0 ? ` Основной: 0 сделок — порог ${minimumControl.value} не был достигнут при ${enabled.filter(Boolean).length} выбранных стратегиях.` : "";
-      status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Размер сделки: ${positionSize} BTC. Доп. расходы: ${tradeCostUsd} USD/закрытую сделку. Расчёт по Bid/Ask и спреду, без автоматического учёта финансирования и дополнительного проскальзывания. Журналы не менялись. Проверяемый режим основного: ${momentumInput.checked ? "скорость/ускорение ВКЛ" : "скорость/ускорение ВЫКЛ"}.${zeroReason}`;
+      status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Размер сделки: ${positionSize} BTC. Доп. расходы: ${tradeCostUsd} USD/закрытую сделку. Расчёт по Bid/Ask и спреду, без автоматического учёта финансирования и дополнительного проскальзывания. Журналы не менялись. Контрольный вариант: ATR 1,2 и прежнее сопровождение. Эксперимент: ATR ${optimization.atrMultiplier}, безубыток ${optimization.breakevenAtR == null ? "по текущему TP" : "при " + optimization.breakevenAtR + "R"}. Ускорение: ${momentumInput.checked ? "ВКЛ" : "ВЫКЛ"}.${zeroReason}`;
       validRun = true;
       canApply();
-      $("backtestApplyStatus").textContent = "Бэктест готов. Можно применить выбранные стратегии/совпадения; фильтр скорости из бэктеста не переносится в действующую торговлю — для неё отдельная кнопка во вкладке «Рынок».";
+      $("backtestApplyStatus").textContent = "Сравнение готово. Кнопка «Применить» передаёт только прежние настройки стратегий, совпадений и R/R. Экспериментальные ATR и безубыток не переносятся в живую торговлю.";
     } catch (e) { status.textContent = "Бэктест не выполнен: " + e.message; }
     finally { run.disabled = false; }
   });
