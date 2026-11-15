@@ -144,19 +144,40 @@ export function backtestBitcoin(candles, { enabled, minMatches, riskReward, posi
 
 const text = n => n == null ? "—" : Number(n).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const metric = (name, value) => `<div><small>${name}</small><b>${value}</b></div>`;
-const summary = (result, positionSize) => `<article class="backtest-card"><h3>${result.label}</h3><div class="backtest-metrics">`
+const summary = (result, positionSize, card) => `<article class="backtest-card"><h3>${result.label}</h3><div class="backtest-metrics">`
   + metric("Закрытый PnL · USD (" + positionSize + " BTC/сделка)", `<span class="${result.closedPnl >= 0 ? "green" : "red"}">${result.closedPnl > 0 ? "+" : ""}${text(result.closedPnl)}</span>`)
   + metric("Winrate", result.winrate == null ? "—" : text(result.winrate) + "%")
   + metric("Закрыто / открыто", result.closed + " / " + result.open)
   + metric("Прибыльных / убыточных", result.wins + " / " + result.losses)
   + metric("Profit Factor", text(result.profitFactor))
   + metric("Просадка · USD", text(result.maxDrawdown))
-  + `</div><p class="notice">Плавающий PnL: ${text(result.floating)} · всего с открытыми: ${text(result.pnl)}</p></article>`;
+  + `</div><p class="notice">Плавающий PnL: ${text(result.floating)} · всего с открытыми: ${text(result.pnl)}</p>`
+  + (card ? `<button type="button" class="backtest-apply-all" data-backtest-card="${card}">Применить ко всей торговле</button><p class="notice" data-backtest-card-status="${card}"></p>` : "")
+  + `</article>`;
 
 export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () => {}) {
   const $ = id => document.getElementById(id);
   const enabled = (getSettings()?.enabled_strategies || names.map(() => true)).slice();
   const apply = $("backtestApply");
+  const resultsContainer = $("backtestResults");
+  const allStatus = $("backtestApplyAllStatus");
+  let cardPresets = new Map();
+  let applyingAll = false;
+  // Read-only receipt of the last accepted configuration, not a live order action.
+  fetch(workerUrl + "/api/backtest-global-preset", { cache: "no-store" })
+    .then(async response => {
+      if (!response.ok) return;
+      const data = await response.json();
+      const p = data.active;
+      if (p && !validRun && !applyingAll) {
+        allStatus.textContent = "Сейчас сохранено для новых сделок: ATR "
+          + p.atrMultiplier + ", выход " + (p.breakevenAtR === null
+            ? "после TP" : p.breakevenAtR === "hybrid" ? "Гибрид"
+              : "безубыток " + p.breakevenAtR + "R")
+          + ", " + p.timeframe + ", размер DEMO " + p.positionSize + " BTC. "
+          + "Для новой проверки запусти бэктест.";
+      }
+    }).catch(() => {});
   const momentumInput = $("backtestMomentumEnabled");
   const atrInput = $("backtestAtrMultiplier");
   const exitInput = $("backtestBreakevenAtR");
@@ -178,7 +199,10 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
   let validRun = false;
   const invalidate = () => {
     validRun = false;
+    cardPresets = new Map();
     apply.disabled = true;
+    resultsContainer.querySelectorAll("[data-backtest-card]").forEach(button => { button.disabled = true; });
+    allStatus.textContent = "Настройки изменены. Запусти новый бэктест перед общим применением.";
     $("backtestApplyStatus").textContent = "Настройки изменены. Сначала запусти бэктест с новым выбором.";
   };
   const canApply = () => {
@@ -317,13 +341,30 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
         momentumEnabled: momentumInput.checked, optimization });
       const selectedMode = momentumInput.checked ? result.momentum : result.main;
       const alternativeMode = momentumInput.checked ? result.main : result.momentum;
-      $("backtestResults").innerHTML = summary({
+      const basePreset = {
+        enabled: enabled.slice(), timeframe, minMatches: Number(minimumControl.value),
+        riskReward: Number($("backtestRiskReward").value), positionSize, tradeCostUsd,
+        atrMultiplier: 1.2, breakevenAtR: null, momentumEnabled: momentumInput.checked
+      };
+      cardPresets = new Map([
+        ["control", { ...basePreset, card: "control" }],
+        ["optimized", { ...basePreset, ...optimization, card: "optimized" }],
+        ["other-momentum", { ...basePreset, momentumEnabled: !momentumInput.checked,
+          card: "other-momentum" }],
+        ["ai", { ...basePreset, momentumEnabled: false, card: "ai" }]
+      ]);
+      if (result.sameAtrLegacy) {
+        cardPresets.set("same-atr", { ...basePreset,
+          atrMultiplier: optimization.atrMultiplier, card: "same-atr" });
+      }
+      resultsContainer.innerHTML = summary({
         ...selectedMode, label: "Контрольный вариант · ATR 1,2 · текущее сопровождение · "
           + (momentumInput.checked ? "с ускорением" : "без ускорения")
-      }, positionSize) + summary(result.optimized, positionSize)
-        + (result.sameAtrLegacy ? summary(result.sameAtrLegacy, positionSize) : "")
-        + summary({ ...alternativeMode, label: "Другой режим ускорения · " + alternativeMode.label }, positionSize)
-        + summary(result.ai, positionSize);
+      }, positionSize, "control") + summary(result.optimized, positionSize, "optimized")
+        + (result.sameAtrLegacy ? summary(result.sameAtrLegacy, positionSize, "same-atr") : "")
+        + summary({ ...alternativeMode, label: "Другой режим ускорения · " + alternativeMode.label },
+          positionSize, "other-momentum")
+        + summary(result.ai, positionSize, "ai");
       showStrategies(result.perStrategy);
       const zeroReason = result.main.total === 0 ? ` Основной: 0 сделок — порог ${minimumControl.value} не был достигнут при ${enabled.filter(Boolean).length} выбранных стратегиях.` : "";
       status.textContent = `${history.stale ? "⚠️ " + history.warning + " " : ""}Готово: ${result.candles} свечей ${timeframe}. ${new Date(result.from * 1000).toLocaleString("ru-RU")} — ${new Date(result.to * 1000).toLocaleString("ru-RU")}. Размер сделки: ${positionSize} BTC. Доп. расходы: ${tradeCostUsd} USD/закрытую сделку. Расчёт по Bid/Ask и спреду, без автоматического учёта финансирования и дополнительного проскальзывания. Журналы не менялись. Контрольный вариант: ATR 1,2 и прежнее сопровождение. Эксперимент: ATR ${optimization.atrMultiplier}, ${optimization.breakevenAtR === "hybrid"
@@ -331,9 +372,65 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
         : optimization.breakevenAtR == null ? "старое сопровождение от TP" : "безубыток при " + optimization.breakevenAtR + "R"}. Ускорение: ${momentumInput.checked ? "ВКЛ" : "ВЫКЛ"}.${zeroReason}`;
       validRun = true;
       canApply();
+      allStatus.textContent = "Можно применить любой показанный вариант к новым сделкам основного бота, AI и Capital.com DEMO. Потребуется PIN. Режим DEMO не включается автоматически.";
       $("backtestApplyStatus").textContent = "Сравнение готово. Кнопка «Применить» передаёт только прежние настройки стратегий, совпадений и R/R. Экспериментальные ATR и безубыток не переносятся в живую торговлю.";
     } catch (e) { status.textContent = "Бэктест не выполнен: " + e.message; }
     finally { run.disabled = false; }
+  });
+  resultsContainer.addEventListener("click", async event => {
+    const button = event.target.closest("button[data-backtest-card]");
+    if (!button || !validRun || applyingAll) return;
+    const cardStatus = button.parentElement.querySelector("[data-backtest-card-status]");
+    const preset = cardPresets.get(button.dataset.backtestCard);
+    if (!preset) return;
+    const exitDescription = preset.breakevenAtR === null ? "старое сопровождение от TP"
+      : preset.breakevenAtR === "hybrid" ? "гибрид: BE при 1,5R → TP → trailing"
+      : "безубыток при " + preset.breakevenAtR + "R";
+    const isAiCard = preset.card === "ai";
+    const warning = "Применить настройки выбранного результата ко всей будущей торговле?\n\n"
+      + "ATR " + preset.atrMultiplier + " · " + exitDescription + "\n"
+      + preset.timeframe + " · минимум " + preset.minMatches + " · R/R 1:" + preset.riskReward + "\n"
+      + preset.enabled.filter(Boolean).length + " выбранных стратегий · BTC " + preset.positionSize + "\n"
+      + "Доп. расходы в бэктесте: $" + preset.tradeCostUsd + " (не меняют тариф брокера)\n"
+      + "Фильтр скорости/ускорения: " + (preset.momentumEnabled ? "ВКЛ" : "ВЫКЛ") + "\n\n"
+      + "Для НОВЫХ сделок основного бота, AI и DEMO, если он уже включён. "
+      + "Выбранный размер BTC также станет размером будущих DEMO-ордеров. "
+      + "Нынешние позиции и журналы не меняются. Режим DEMO не включается. "
+      + "AI сохраняет собственный алгоритм голосования, поэтому исторический AI — приблизительный."
+      + (isAiCard ? "\n\nВажно: нельзя перенести исторические AI-сигналы на основной бот. Применяются только его общие настройки." : "");
+    if (!confirm(warning)) return;
+    const pin = prompt("Введите личный PIN для применения ко всей торговле:");
+    if (!pin) return;
+    applyingAll = true;
+    resultsContainer.querySelectorAll("[data-backtest-card]").forEach(item => { item.disabled = true; });
+    allStatus.textContent = "Передаём настройки основному боту, AI и режимам Capital.com DEMO…";
+    cardStatus.textContent = "Сохраняем настройки выбранного варианта…";
+    try {
+      const response = await fetch(workerUrl + "/api/backtest-apply-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Execution-Control": pin },
+        body: JSON.stringify({ preset })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "HTTP " + response.status);
+      try { await onMainApplied(preset); } catch (uiError) {
+        console.error("Saved globally, but UI refresh failed", uiError);
+      }
+      cardStatus.textContent = "Сохранено! Настройки будут действовать для новых сделок основного бота и AI, а также DEMO при его включённом режиме."
+        + (result.ai_enabled === false ? " AI сейчас выключен — его нужно включить отдельно." : "")
+        + (result.execution_mode === "VIRTUAL" ? " DEMO остаётся выключенным." : "");
+      allStatus.textContent = "Сохранено: выбранный вариант применён к НОВЫМ сделкам основного бота и AI (виртуальные и DEMO при включённом режиме). "
+        + "DEMO не включалось, открытые сделки остаются без изменений. "
+        + "Исторические результаты не гарантируют такую же прибыль.";
+    } catch (error) {
+      cardStatus.textContent = "Ошибка применения: " + error.message;
+      allStatus.textContent = "Не удалось применить ко всей торговле: " + error.message;
+    } finally {
+      applyingAll = false;
+      if (validRun) resultsContainer.querySelectorAll("[data-backtest-card]").forEach(item => {
+        item.disabled = false;
+      });
+    }
   });
   apply.addEventListener("click", async () => {
     if (!validRun) return;

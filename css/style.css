@@ -192,3 +192,14 @@ main [hidden]{display:none!important}.nav button{border:0;background:transparent
 .nav button{flex:0 0 auto;padding:8px 12px}
 #gpt-section .ai-journal-stats{margin:14px 0}
 #gpt-section .test-trade{padding:11px;margin:8px 0;border:1px solid var(--line);border-radius:11px;font-size:12px;line-height:1.8}
+
+/* Per-result action: keep a full-width, thumb-friendly button inside every
+   backtest scorecard on narrow phone screens. */
+.backtest-card .backtest-apply-all {
+  display:block;width:100%;margin-top:13px;padding:12px 9px;
+  border-radius:9px;border:1px solid #5476a8;
+  background:#20314d;color:#fff;font-weight:650;font-size:13px;
+  cursor:pointer;white-space:normal;text-align:center;
+}
+.backtest-card .backtest-apply-all:disabled {opacity:.42;cursor:not-allowed}
+.backtest-card .backtest-apply-all:focus-visible {outline:2px solid #8bafff;outline-offset:2px}
