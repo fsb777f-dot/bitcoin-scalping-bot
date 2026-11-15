@@ -28,6 +28,8 @@ export function validGlobalBacktestPreset(p, strategyCount) {
     && validBacktestExit(p.breakevenAtR)
     && typeof p.momentumEnabled === "boolean"
     && ["control", "optimized", "same-atr", "other-momentum", "ai"].includes(p.card)
+    && (p.tradeCostUsd === undefined
+      || (Number.isFinite(p.tradeCostUsd) && p.tradeCostUsd >= 0))
     && Number.isFinite(p.positionSize) && p.positionSize >= 0.0001
     && p.positionSize <= 50
     && Math.abs((p.positionSize - 0.0001) / 0.0001
