@@ -47,7 +47,8 @@ function syncControls(){
  $("riskReward").value=String(settings.risk_reward);
  $("aiEnabled").checked=!!settings.ai_enabled;
  $("aiModeLabel").textContent=settings.ai_enabled?"ВКЛ · АНАЛИЗ":"ВЫКЛ";
- $("mainDemoEnabled").checked=settings.execution_mode==="MAIN_DEMO";
+ $("fibDemo").checked=settings.execution_mode==="MAIN_DEMO" && settings.fibonacci_demo===true;
+ $("mainDemoEnabled").checked=settings.execution_mode==="MAIN_DEMO" && !settings.fibonacci_demo;
  $("aiDemoEnabled").checked=settings.execution_mode==="AI_DEMO";
  $("demoTradeSize").value=settings.trade_size==null?"":String(settings.trade_size);
  $("demoExecutionNote").textContent=settings.execution_mode==="MAIN_DEMO"?"Основной бот торгует виртуально; дополнительно включён Capital.com DEMO. AI остаётся виртуальным.":settings.execution_mode==="AI_DEMO"?"Включён AI DEMO. Основной бот продолжает виртуальную торговлю.":"DEMO-торговля выключена. Оба режима работают виртуально.";
@@ -207,16 +208,17 @@ async function saveSettings(){
  if(error)throw error;
  $("cloudStatus").textContent="Настройки сохранены в облаке · сканер обновит их в ближайшую минуту";
 }
-async function setExecutionMode(mode){
+async function setExecutionMode(mode,fibonacci=false){
  const pin=prompt("Введите PIN управления DEMO (он хранится только в Worker Cloudflare):");
  if(!pin)throw new Error("Переключение DEMO отменено: PIN не введён.");
  const size=Number($("demoTradeSize").value);
  const response=await fetch(WORKER+"/api/execution-mode",{
   method:"POST",headers:{"Content-Type":"application/json","X-Execution-Control":pin},
-  body:JSON.stringify({mode,trade_size:Number.isFinite(size)&&size>0?size:null})
+  body:JSON.stringify({mode,fibonacci_demo:fibonacci,trade_size:Number.isFinite(size)&&size>0?size:null})
  });
  const result=await response.json().catch(()=>({}));
  if(!response.ok)throw new Error(result.error||"Не удалось изменить режим DEMO");
+ settings.fibonacci_demo=fibonacci;
  settings.execution_mode=result.execution_mode;
  settings.trade_size=result.trade_size;
  syncControls();
@@ -284,6 +286,11 @@ $("momentumEnabled").addEventListener("change",async e=>{
  }catch(error){alert("Фильтр не изменён: "+error.message)}
  syncMomentumControl();
 });
+$("fibDemo").addEventListener("change",async event=>{
+ const enabled=event.target.checked;
+ try { await setExecutionMode(enabled?"MAIN_DEMO":"VIRTUAL",enabled); }
+ catch(error){syncControls();alert(error.message)}
+});
 $("mainDemoEnabled").addEventListener("change",async e=>{
  const old=settings.execution_mode;
  try{await setExecutionMode(e.target.checked?"MAIN_DEMO":"VIRTUAL")}
@@ -305,7 +312,7 @@ $("demoTradeSize").addEventListener("change",async()=>{
  settings.trade_size=Number.isFinite(value)&&value>0?value:null;
  try{
   if(settings.execution_mode==="VIRTUAL")await saveSettings();
-  else await setExecutionMode(settings.execution_mode);
+  else await setExecutionMode(settings.execution_mode,settings.fibonacci_demo===true);
  }catch(error){
   settings.trade_size=old;
   $("demoTradeSize").value=old==null?"":String(old);
