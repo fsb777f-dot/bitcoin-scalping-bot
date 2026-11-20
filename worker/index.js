@@ -442,12 +442,14 @@ async function getPreviousState(env) {
   const rows = await db(env, "bot_state?id=eq.1&select=ai_side,side,candle_time,timeframe");
   return rows?.[0] || {};
 }
-async function getStrategyPerformance(env) {
-  const rows = await db(env, "trades?status=eq.CLOSED&trade_key=like.ai%25&select=confirmations,pnl,result,trade_time,trade_key&order=trade_time.desc&limit=300");
+export async function getStrategyPerformance(env, executionMode) {
+  const rows = await db(env, "trades?status=eq.CLOSED&pnl=not.is.null&trade_key=like.ai:%25"
+    + "&execution_mode=eq." + executionMode
+    + "&select=confirmations,pnl&order=updated_at.desc,trade_key.desc&limit=300");
   return names.map(name => {
     const relevant = (rows || []).filter(t => Array.isArray(t.confirmations) && t.confirmations.includes(name));
-    const wins = relevant.filter(t => Number(t.pnl) > 0 || t.result === "TP").length;
-    const losses = relevant.filter(t => Number(t.pnl) < 0 || t.result === "SL").length;
+    const wins = relevant.filter(t => Number(t.pnl) > 0).length;
+    const losses = relevant.filter(t => Number(t.pnl) < 0).length;
     const total = wins + losses;
     const winRate = total ? wins / total : null;
     const reliability = total >= 5 ? Math.min(1, total / 10) : 0;
@@ -479,6 +481,15 @@ function aiDecision(results, enabled, performance) {
     : "AI выбрал " + selected.length + " стратегий; доля взвешенных голосов " + confidence + "%.";
   return { side, count: selected.length, confidence, buy_weight: Number(buyWeight.toFixed(2)), sell_weight: Number(sellWeight.toFixed(2)), selected, excluded, reason, performance };
 }
+export async function hasRecentAiLossStreak(env, executionMode, side, now = Date.now()) {
+  const rows = await db(env, "trades?status=eq.CLOSED&pnl=not.is.null&trade_key=like.ai:%25"
+    + "&execution_mode=eq." + executionMode + "&side=eq." + side
+    + "&select=pnl,updated_at&order=updated_at.desc,trade_key.desc&limit=3");
+  return rows?.length === 3
+    && rows.every(trade => Number(trade.pnl) < 0)
+    && Date.parse(rows[0].updated_at) > now - 10 * 60000;
+}
+
 async function runScan(env) {
   if (!env.SUPABASE_SECRET_KEY) throw new Error("Set SUPABASE_SECRET_KEY in Worker secrets");
   const settings = await getSettings(env);
@@ -510,10 +521,11 @@ async function runScan(env) {
     console.error("Capital.com DEMO journal sync failed", error?.message || String(error));
   }
   await updateOpenTrades(env, market.bid, market.ask, candle, newCandle);
+  const aiExecutionMode = settings.executionMode === "AI_DEMO" ? "AI_DEMO" : "VIRTUAL";
   let performance = [];
   if (settings.aiEnabled) {
     try {
-      performance = await getStrategyPerformance(env);
+      performance = await getStrategyPerformance(env, aiExecutionMode);
     } catch (error) {
       // A statistics-read failure must never stop the live scanner or AI paper trader.
       console.error("AI performance lookup failed; continuing with neutral strategy weights", {
@@ -538,12 +550,7 @@ async function runScan(env) {
   // limiting existing positions or disabling any strategy votes.
   let aiLossPause = false;
   if (settings.aiEnabled && aiSignalChanged) {
-    const recentAi = await db(env, "trades?status=eq.CLOSED&trade_key=like.ai%25&select=side,pnl,trade_time&order=trade_time.desc&limit=12");
-    const sameSide = (recentAi || []).filter(t => t.side === ai.side);
-    const lastThree = sameSide.slice(0, 3);
-    aiLossPause = lastThree.length === 3
-      && lastThree.every(t => Number(t.pnl) < 0)
-      && Number(lastThree[0].trade_time) > Date.now() - 10 * 60000;
+    aiLossPause = await hasRecentAiLossStreak(env, aiExecutionMode, ai.side);
   }
   const canOpenAiTrade = settings.aiEnabled && aiSignalChanged && !aiLossPause;
   const atrSlDistance = context.atr * settings.atrMultiplier;
