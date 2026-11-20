@@ -134,7 +134,7 @@ function renderDemoJournal(){
  const mode=$("demoJournalMode").value;
  const rows=mode==="ALL"?demoRows:demoRows.filter(t=>t.execution_mode===mode);
  const closed=rows.filter(t=>t.status==="CLOSED"),open=rows.filter(t=>t.status==="OPEN");
- const pending=open.filter(t=>t.capital_status==="RECONCILE_PENDING"),active=open.filter(t=>t.capital_status!=="RECONCILE_PENDING");
+ const pending=open.filter(t=>t.capital_status==="RECONCILE_PENDING"),active=open.filter(t=>t.capital_deal_id&&t.capital_status!=="RECONCILE_PENDING");
  const decided=closed.filter(t=>t.pnl!=null&&Number.isFinite(Number(t.pnl)));
  const confirmed=decided.filter(t=>t.demo_pnl_source==="CAPITAL_TRADE"),estimated=decided.filter(t=>t.demo_pnl_source==="ESTIMATE");
  const measured=[...confirmed,...estimated],unverified=decided.length-measured.length;
@@ -142,7 +142,7 @@ function renderDemoJournal(){
  const floating=active.filter(t=>t.demo_open_pnl!=null&&Number.isFinite(Number(t.demo_open_pnl)));
  const realized=confirmed.reduce((n,t)=>n+Number(t.pnl),0),estimate=estimated.reduce((n,t)=>n+Number(t.pnl),0),upl=floating.reduce((n,t)=>n+Number(t.demo_open_pnl),0);
  const set=(id,n)=>$(id).textContent=String(n);
- set("demoTotal",rows.length);set("demoOpen",active.length);set("demoClosed",closed.length);
+ set("demoTotal",rows.filter(t=>t.capital_deal_id).length);set("demoOpen",active.length);set("demoClosed",closed.length);
  $("clearDemoJournal").disabled=closed.length===0;
  set("demoWins",wins);set("demoLosses",losses);
  set("demoWinRate",wins+losses?(wins/(wins+losses)*100).toFixed(1)+"%":"—");
@@ -151,7 +151,7 @@ function renderDemoJournal(){
   $(id).className=value>0&&count?"green":value<0&&count?"red":"";
  }
  const unknown=closed.length-decided.length;
- $("demoJournalNote").textContent="Capital.com DEMO · только подтверждённые брокером ордера. "
+ $("demoJournalNote").textContent="Capital.com DEMO · в статистике учитываются подтверждённые сделки. "
   +(pending.length?"У "+pending.length+" позиций брокер больше не показывает открытый ордер; ищем подтверждение закрытия и итоговый PnL. ":"")
   +(unknown?"У "+unknown+" закрытых сделок нет подтверждённого PnL; они не включены в итог. ":"")
   +(unverified?"У "+unverified+" старых сделок PnL записан без указания источника; он не включён в итоговую статистику. ":"")
@@ -164,7 +164,7 @@ function renderDemoJournal(){
   const time=Number(t.trade_time)?new Date(Number(t.trade_time)).toLocaleString("ru-RU"):"—";
   const closedAt=t.demo_closed_at?new Date(t.demo_closed_at).toLocaleString("ru-RU"):null;
   const amount=pnl==null?"—":(t.demo_pnl_source==="ESTIMATE"?"≈":"")+(Number(pnl)>=0?"+":"")+fmt(pnl)+" USD"+(t.status==="CLOSED"&&!t.demo_pnl_source?" · архив":"");
-  const result=reconciling?"СВЕРКА С БРОКЕРОМ":isOpen?"ОТКРЫТА":pnl==null?"ЗАКРЫТА · PnL НЕТ":!t.demo_pnl_source?"АРХИВ · НЕ ПРОВЕРЕНО":Number(pnl)>0?"ПРИБЫЛЬ":Number(pnl)<0?"УБЫТОК":"БЕЗУБЫТОК";
+  const result=!t.capital_deal_id?(t.capital_status==="REJECTED"?"ЗАЯВКА ОТКЛОНЕНА":"ОЖИДАЕТ СВЕРКИ") :reconciling?"СВЕРКА С БРОКЕРОМ":isOpen?"ОТКРЫТА":pnl==null?"ЗАКРЫТА · PnL НЕТ":!t.demo_pnl_source?"АРХИВ · НЕ ПРОВЕРЕНО":Number(pnl)>0?"ПРИБЫЛЬ":Number(pnl)<0?"УБЫТОК":"БЕЗУБЫТОК";
   const css=reconciling?"muted":isOpen?"yellow":pnl==null?"muted":Number(pnl)>0?"green":Number(pnl)<0?"red":"muted";
   const id=String(t.capital_deal_id||"");
   return '<div class="ai-trade-row"><div class="ai-trade-top"><b class="'+(t.side==="BUY"?"green":"red")+'">'+safe(t.side)+'</b><span class="'+css+'">'+result+'</span><span class="demo-source">'+(t.execution_mode==="AI_DEMO"?"AI DEMO":"Основной DEMO")+'</span><time>'+safe(time)+'</time></div>'

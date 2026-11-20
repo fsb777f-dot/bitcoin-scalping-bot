@@ -198,8 +198,8 @@ export function capitalDemoCloseEvent(trade, activities) {
   }).sort((a, b) => String(b.dateUTC || b.date || "").localeCompare(String(a.dateUTC || a.date || "")))[0] || null;
 }
 
-export async function capitalDemoReconcile(env, trades) {
-  const auth = await capitalDemoAuth(env);
+export async function capitalDemoReconcile(env, trades, sharedAuth) {
+  const auth = sharedAuth || await capitalDemoAuth(env);
   const result = await request("/positions", auth);
   const positions = Array.isArray(result.data?.positions) ? result.data.positions : [];
   const openById = new Map(positions.map(item => [item.position?.dealId, item.position]).filter(([id]) => id));
@@ -309,6 +309,7 @@ export function capitalDemoPositionSnapshot(position) {
   return {
     ...(finiteBrokerNumber(position.level) !== null ? { entry: Number(position.level) } : {}),
     ...(finiteBrokerNumber(position.size) !== null ? { demo_size: Number(position.size) } : {}),
+    ...(finiteBrokerNumber(position.stopLevel) > 0 ? { sl: Number(position.stopLevel) } : {}),
     demo_open_pnl: finiteBrokerNumber(position.upl)
   };
 }
@@ -382,7 +383,7 @@ export async function capitalDemoInstrumentRules(env) {
   };
 }
 
-export async function capitalDemoOpenPosition(env, { direction, size, stopLevel, profitLevel, trailingEnabled = false }) {
+export async function capitalDemoOpenPosition(env, { direction, size, stopLevel, profitLevel, trailingEnabled = false }, callbacks) {
   if (direction !== "BUY" && direction !== "SELL") throw new Error("Invalid DEMO order direction");
   const requestedSize = Number(size);
   if (!Number.isFinite(requestedSize) || requestedSize <= 0) throw new Error("DEMO trade size must be positive");
@@ -425,6 +426,7 @@ export async function capitalDemoOpenPosition(env, { direction, size, stopLevel,
     size: requestedSize,
     stopLevel: sl
   };
+  if (callbacks && !await callbacks.claim()) return null;
   const opened = await request("/positions", auth, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -433,19 +435,25 @@ export async function capitalDemoOpenPosition(env, { direction, size, stopLevel,
   const dealReference = opened.data?.dealReference;
   if (!dealReference) throw new Error("Capital.com did not return a deal reference");
 
+  if (callbacks) await callbacks.remember(dealReference);
+  const confirmation = await confirmBtcDemoOpen(auth, dealReference);
+  return { ...confirmation, direction, size: requestedSize };
+}
+
+export async function confirmBtcDemoOpen(auth, dealReference) {
   const confirmation = await request("/confirms/" + encodeURIComponent(dealReference), auth);
   const confirmed = confirmation.data || {};
   const affected = Array.isArray(confirmed.affectedDeals) ? confirmed.affectedDeals : [];
   const deal = affected.find(item => item.status === "OPENED" && item.dealId);
   if (confirmed.dealStatus !== "ACCEPTED" || !deal) {
-    throw new Error("Capital.com DEMO order was not confirmed as opened: " + (confirmed.reason || confirmed.dealStatus || confirmed.status || "unknown"));
+    const error = new Error("Capital.com DEMO order was not confirmed as opened: " + (confirmed.reason || confirmed.dealStatus || confirmed.status || "unknown"));
+    error.rejected = confirmed.dealStatus === "REJECTED";
+    throw error;
   }
   return {
     dealReference,
     dealId: deal.dealId,
     status: confirmed.status || "OPEN",
-    direction,
-    size: requestedSize,
     level: Number(confirmed.level) || null
   };
 }

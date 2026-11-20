@@ -1,3 +1,4 @@
+import { btcProfitStop } from "../js/btc-profit-stop.js";
 import { buildContext } from "../js/indicators.js";
 import { candleMomentum, momentumConfirms } from "../js/momentum-filter.js";
 import { backtestBreakevenTrailUpdate, backtestHybridTrailUpdate } from "../js/backtest-risk.js";
@@ -6,7 +7,7 @@ import { exitProfileOfTrade, tradeWithExitProfile, validBacktestExit,
 import { runGptScan, gptStatus } from "./gpt-strategy.js";
 import { gptStrategyPage } from "./gpt-strategy-page.js";
 import { strategies, names } from "../strategies/index.js";
-import { capitalDemoStatus, capitalDemoMarketData, capitalDemoMarketBundle, capitalDemoInstrumentRules, capitalDemoOpenPosition, capitalDemoUpdatePosition, capitalDemoReconcile, capitalDemoAuth } from "./capital-demo.js";
+import { capitalDemoStatus, capitalDemoMarketData, capitalDemoMarketBundle, capitalDemoInstrumentRules, capitalDemoOpenPosition, confirmBtcDemoOpen, capitalDemoUpdatePosition, capitalDemoReconcile, capitalDemoAuth } from "./capital-demo.js";
 import { virtualPartialUpdate, virtualTargetTrailUpdate, virtualSettledPnl, virtualStopFill, spreadSafeStopDistance } from "./partial-profit.js";
 
 const cors = {
@@ -344,20 +345,44 @@ async function patchTrade(env, key, patch) {
     body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() })
   });
 }
-async function syncCapitalDemoTrades(env) {
-  const trades = await db(env, "trades?status=eq.OPEN&execution_mode=in.(MAIN_DEMO,AI_DEMO)&capital_deal_id=not.is.null&select=*") || [];
+async function syncCapitalDemoTrades(env, auth) {
+  const waiting = await db(env, "trades?execution_mode=in.(MAIN_DEMO,AI_DEMO)&capital_deal_id=is.null"
+    + "&capital_deal_reference=not.is.null&capital_status=eq.PENDING&select=*&order=updated_at.asc,trade_key.asc&limit=3");
+  for (const row of waiting || []) {
+    try {
+      const order = await confirmBtcDemoOpen(auth, row.capital_deal_reference);
+      await patchTrade(env, row.trade_key, confirmedBtcFields(order));
+    } catch (error) {
+      await patchTrade(env, row.trade_key, { capital_status: error.rejected ? "REJECTED" : "PENDING" });
+    }
+  }
+  const trades = await readOpenTrades(env, "&execution_mode=in.(MAIN_DEMO,AI_DEMO)&capital_deal_id=not.is.null");
   // Older closes recorded without PnL can still be resolved while the broker's
   // one-day transaction history is available.
   const pending = await db(env, "trades?status=eq.CLOSED&pnl=is.null&execution_mode=in.(MAIN_DEMO,AI_DEMO)&capital_deal_id=not.is.null&trade_time=gte."
     + (Date.now() - 86400000) + "&select=*&order=trade_time.desc&limit=30");
   trades.push(...(pending || []));
   if (!trades?.length) return { checked: 0, stillOpen: 0, closed: 0, unresolved: 0 };
-  return capitalDemoReconcile(env, trades);
+  return capitalDemoReconcile(env, trades, auth);
+}
+async function readOpenTrades(env, filters = "") {
+  const open = [];
+  // Keyset pagination keeps all open positions eligible, including older DEMO deals.
+  let after = "";
+  for (;;) {
+    const page = await db(env, "trades?status=eq.OPEN&select=*&order=trade_key.asc&limit=1000" + filters
+      + (after ? "&trade_key=gt." + encodeURIComponent(after) : ""));
+    open.push(...(page || []));
+    if (!page || page.length < 1000) break;
+    after = page.at(-1).trade_key;
+  }
+  return open;
 }
 async function updateOpenTrades(env, bid, ask, completedCandle = null, newCandle = false) {
-  const open = await db(env, "trades?status=eq.OPEN&select=*");
+  const open = await readOpenTrades(env);
   const spread = Math.max(0, Number(ask) - Number(bid));
   for (const t of open || []) {
+    if (["MAIN_DEMO", "AI_DEMO"].includes(t.execution_mode) && !t.capital_deal_id) continue;
     if (t.side !== "BUY" && t.side !== "SELL") continue;
     const isDemo = t.execution_mode === "MAIN_DEMO" || t.execution_mode === "AI_DEMO";
     const price = t.side === "BUY" ? bid : ask;
@@ -393,6 +418,7 @@ async function updateOpenTrades(env, bid, ask, completedCandle = null, newCandle
         : preset.exitProfile === null ? virtualTargetTrailUpdate(trade, barQuote)
         : backtestBreakevenTrailUpdate(trade, barQuote, preset.exitProfile);
     }
+    update = btcProfitStop(t, price, update, isDemo ? Math.max(spread * 1.05, 1e-8) : 0);
     if (!update) continue;
     const nextStop = update.sl;
     if (isDemo) {
@@ -415,29 +441,41 @@ async function updateOpenTrades(env, bid, ask, completedCandle = null, newCandle
   }
 }
 async function openDemoTradeOnce(env, trade, executionMode, size) {
-  const existing = await db(env, "trades?trade_key=eq." + encodeURIComponent(trade.trade_key) + "&select=trade_key&limit=1");
-  if (Array.isArray(existing) && existing.length) return { duplicate: true };
-  const order = await capitalDemoOpenPosition(env, {
-    direction: trade.side, size, stopLevel: trade.sl,
-    trailingEnabled: executionMode === "MAIN_DEMO" || executionMode === "AI_DEMO"
-  });
-  const record = {
-    ...trade, execution_mode: executionMode,
-    entry: order.level ?? trade.entry,
-    capital_deal_id: order.dealId,
-    capital_deal_reference: order.dealReference,
-    capital_status: order.status,
-    demo_size: order.size
+  let reference;
+  const callbacks = {
+    async claim() {
+      const claim = record => db(env, "trades?on_conflict=trade_key&select=trade_key", {
+        method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=representation" },
+        body: JSON.stringify(record)
+      });
+      const record = { ...trade, execution_mode: executionMode, capital_status: "PENDING" };
+      let rows;
+      try { rows = await claim({ ...record, demo_size: size }); }
+      catch (error) {
+        if (!/demo_size/i.test(String(error)) || !/PGRST204|column|schema cache/i.test(String(error))) throw error;
+        rows = await claim(record);
+      }
+      return rows?.length === 1;
+    },
+    async remember(value) {
+      reference = value;
+      await patchTrade(env, trade.trade_key, { capital_deal_reference: value });
+    }
   };
   try {
-    await insertTradeOnce(env, record);
+    const order = await capitalDemoOpenPosition(env, { direction: trade.side, size, stopLevel: trade.sl }, callbacks);
+    if (!order) return { duplicate: true };
+    await patchTrade(env, trade.trade_key, confirmedBtcFields(order));
+    return { duplicate: false, dealId: order.dealId };
   } catch (error) {
-    // A missing optional migration must not lose an already accepted broker order.
-    if (!/PGRST204|column.*does not exist|schema cache/i.test(String(error))) throw error;
-    const { demo_size, ...legacyRecord } = record;
-    await insertTradeOnce(env, legacyRecord);
+    if (reference) await patchTrade(env, trade.trade_key, { capital_deal_reference: reference,
+      capital_status: error.rejected ? "REJECTED" : "PENDING" });
+    throw error;
   }
-  return { duplicate: false, dealId: order.dealId };
+}
+function confirmedBtcFields(order) {
+  return { status: "OPEN", capital_status: order.status, capital_deal_id: order.dealId,
+    capital_deal_reference: order.dealReference, ...(order.level ? { entry: order.level } : {}) };
 }
 async function getPreviousState(env) {
   const rows = await db(env, "bot_state?id=eq.1&select=ai_side,side,candle_time,timeframe");
@@ -504,7 +542,7 @@ async function runScan(env) {
   const normalSide = settings.momentumEnabled && !momentumConfirms(classicSide, momentum)
     ? "WAIT" : classicSide;
   try {
-    const sync = await syncCapitalDemoTrades(env);
+    const sync = await syncCapitalDemoTrades(env, sharedAuth);
     if (sync.closed || sync.unresolved) console.log("Capital.com DEMO journal sync", sync);
   } catch (error) {
     // A broker-history failure must not cause journal rows to be guessed closed.
@@ -693,7 +731,7 @@ export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
-    if (url.pathname === "/health") return reply({ ok: true, service: "bitcoin-scalping-server", mode: "VIRTUAL_ONLY" });
+    if (url.pathname === "/health") return reply({ ok: true, service: "bitcoin-scalping-server", btcProfitStopVersion: 1, mode: "VIRTUAL_ONLY" });
     if (url.pathname === "/gpt-strategy") return new Response(gptStrategyPage, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     if (url.pathname === "/api/gpt-strategy" && request.method === "GET") {
       try { return reply(await gptStatus(db.bind(null, env), "btc_gpt")); }

@@ -1,3 +1,4 @@
+import { btcProfitStop } from "./btc-profit-stop.js";
 import { buildContext } from "./indicators.js";
 import { candleMomentum, momentumConfirms } from "./momentum-filter.js";
 import { backtestBreakevenTrailUpdate, backtestHybridTrailUpdate } from "./backtest-risk.js";
@@ -67,7 +68,8 @@ function simulate(candles, steps, sideFor, rr, id, label, positionSize, tradeCos
           : breakevenAtR === null
             ? virtualTargetTrailUpdate(trade, executableClose)
             : backtestBreakevenTrailUpdate(trade, executableClose, breakevenAtR);
-        if (update) Object.assign(trade, update);
+        const next = btcProfitStop(trade, executableClose, update);
+        if (next) Object.assign(trade, next);
       }
     }
     const equity = realized + open.reduce((sum, trade) => sum + direction(trade)
