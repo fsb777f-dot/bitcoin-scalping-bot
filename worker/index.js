@@ -76,6 +76,7 @@ async function getSettings(env) {
     timeframe: ["1m", "5m", "15m"].includes(s.timeframe) ? s.timeframe : "1m",
     aiEnabled: s.ai_enabled === true,
     momentumEnabled, aiMomentumEnabled,
+    fibonacciDemo: s.fibonacci_demo === true,
     appliedRisk, atrMultiplier: appliedRisk?.atrMultiplier ?? 1.2,
     exitProfile: appliedRisk?.breakevenAtR ?? null,
     enabled,
@@ -574,7 +575,7 @@ async function runScan(env) {
       confirmations: names.filter((_, i) => settings.enabled[i] && results[i] === normalSide),
       exit: null, pnl: null, status: "OPEN", result: null, updated_at: new Date().toISOString()
     };
-    const { virtual, demo } = mainTradeRecords(normalTrade, settings.executionMode === "MAIN_DEMO");
+    const { virtual, demo } = mainTradeRecords(normalTrade, settings.executionMode === "MAIN_DEMO" && !settings.fibonacciDemo);
     // A DEMO toggle must never suspend the main virtual journal.
     try {
       await insertTradeOnce(env, virtual);
@@ -590,6 +591,27 @@ async function runScan(env) {
         executionError = [executionError, message].filter(Boolean).join(" | ");
       }
     }
+  }
+
+  if (settings.executionMode === "MAIN_DEMO" && settings.fibonacciDemo && settings.timeframe === "5m" && newCandle && candles.length >= 240) {
+    try {
+      const history = buildContext(candles.slice(-240));
+      const side = strategies[names.indexOf("Fibonacci Pullback")](history);
+      if (side === "BUY" || side === "SELL") {
+        const buy = side === "BUY", entry = buy ? market.ask : market.bid;
+        const distance = spreadSafeStopDistance(history.atr * 1.2, market.spread);
+        const target = entry + (buy ? distance : -distance);
+        const current = await getSettings(env);
+        if (current.executionMode === "MAIN_DEMO" && current.fibonacciDemo && current.timeframe === "5m") {
+          await openDemoTradeOnce(env, {
+            trade_key: tradeWithExitProfile("demo:fibonacci:5m:" + candle.time, null),
+            side, entry, sl: entry + (buy ? -distance : distance), tp: target, initial_tp: target,
+            trailing_distance: distance, trailing_active: false, confirmations: ["Fibonacci Pullback"],
+            trade_time: Date.now(), status: "OPEN"
+          }, "MAIN_DEMO", current.tradeSize);
+        }
+      }
+    } catch (error) { executionError = "Fibonacci DEMO: " + String(error?.message || error); }
   }
 
   // AI is an independent paper trader. Its switch never changes the classic scanner.
@@ -884,6 +906,7 @@ export default {
           return reply({ error: "Invalid execution mode" }, 400);
         }
         const size = Number(body?.trade_size);
+        if (body.fibonacci_demo && (mode !== "MAIN_DEMO" || (await getSettings(env)).timeframe !== "5m")) return reply({error:"Выберите 5m на вкладке Рынок."},400);
         if (mode !== "VIRTUAL") {
           if (!Number.isFinite(size) || size <= 0) return reply({ error: "Укажи положительный размер сделки BTC." }, 400);
           const rules = await capitalDemoInstrumentRules(env);
@@ -898,6 +921,7 @@ export default {
           headers: { Prefer: "return=minimal" },
           body: JSON.stringify({
             execution_mode: mode,
+            ...((body.fibonacci_demo || (await getSettings(env)).fibonacciDemo) ? { fibonacci_demo: body.fibonacci_demo === true } : {}),
             trade_size: Number.isFinite(size) && size > 0 ? size : null,
             updated_at: new Date().toISOString()
           })
