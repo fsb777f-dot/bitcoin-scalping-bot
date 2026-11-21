@@ -378,6 +378,23 @@ async function readOpenTrades(env, filters = "") {
   }
   return open;
 }
+function demoDollarProfitStop(trade, quote, update, minimumGap) {
+  const size = Number(trade.demo_size);
+  const entry = Number(trade.entry);
+  const sign = trade.side === "BUY" ? 1 : -1;
+  if (!(size > 0 && Number.isFinite(size))) return update;
+  const profit = sign * (quote - entry) * size;
+  // Leave one price tick beyond the strict broker-gap check after rounding.
+  const room = profit - (minimumGap + 0.01) * size;
+  const steps = Math.min(Math.floor((profit + 1e-9) / 0.20) - 1,
+    Math.floor((room + 1e-9) / 0.20));
+  if (room < 1) return update;
+  const locked = Math.max(1, steps * 0.20);
+  const sl = Math.round((entry + sign * locked / size) * 100) / 100;
+  if (sign * (sl - Number(trade.sl)) <= 0) return update;
+  if (update && sign * (update.sl - sl) >= 0 && sign * (quote - update.sl) > minimumGap) return update;
+  return { ...update, sl, trailing_active: true };
+}
 async function updateOpenTrades(env, bid, ask, completedCandle = null, newCandle = false) {
   const open = await readOpenTrades(env);
   const spread = Math.max(0, Number(ask) - Number(bid));
@@ -418,14 +435,15 @@ async function updateOpenTrades(env, bid, ask, completedCandle = null, newCandle
         : preset.exitProfile === null ? virtualTargetTrailUpdate(trade, barQuote)
         : backtestBreakevenTrailUpdate(trade, barQuote, preset.exitProfile);
     }
-    update = btcProfitStop(t, price, update, isDemo ? Math.max(spread * 1.05, 1e-8) : 0);
+    const minimumGap = isDemo ? Math.max(spread * 1.05, 1e-8) : 0;
+    update = btcProfitStop(t, price, update, minimumGap);
+    if (isDemo) update = demoDollarProfitStop(t, price, update, minimumGap);
     if (!update) continue;
     const nextStop = update.sl;
     if (isDemo) {
       // Capital.com cannot place a stop at the current quote. Wait until the
       // broker permits the TP-level stop; never claim an unconfirmed amendment.
       if (!t.capital_deal_id) continue;
-      const minimumGap = Math.max(spread * 1.05, 1e-8);
       if (buy ? nextStop >= bid - minimumGap : nextStop <= ask + minimumGap) continue;
       try {
         await capitalDemoUpdatePosition(env, t.capital_deal_id, nextStop);
@@ -731,7 +749,7 @@ export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
-    if (url.pathname === "/health") return reply({ ok: true, service: "bitcoin-scalping-server", btcProfitStopVersion: 1, mode: "VIRTUAL_ONLY" });
+    if (url.pathname === "/health") return reply({ ok: true, service: "bitcoin-scalping-server", btcProfitStopVersion: 2, mode: "VIRTUAL_ONLY" });
     if (url.pathname === "/gpt-strategy") return new Response(gptStrategyPage, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     if (url.pathname === "/api/gpt-strategy" && request.method === "GET") {
       try { return reply(await gptStatus(db.bind(null, env), "btc_gpt")); }
