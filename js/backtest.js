@@ -1,3 +1,4 @@
+import { zoneSignals } from "./mtf-zones.js";
 import { btcProfitStop } from "./btc-profit-stop.js";
 import { buildContext } from "./indicators.js";
 import { candleMomentum, momentumConfirms } from "./momentum-filter.js";
@@ -144,6 +145,17 @@ export function backtestBitcoin(candles, { enabled, minMatches, riskReward, posi
     positionSize, tradeCostUsd, main, momentum, optimized, sameAtrLegacy, ai, perStrategy };
 }
 
+export function backtestZones(candles, rr, size, cost) {
+  if (!Array.isArray(candles) || candles.length < 250 || !candles.every(quoteValid))
+    throw new Error("Для проверки нужны минимум 250 свечей BTCUSD Bid/Ask по 5 минут.");
+  const signals = zoneSignals(candles);
+  const steps = candles.map((_, i) => i < 240 ? null : {
+    votes: signals[i] || "WAIT",
+    atr: signals[i] ? buildContext(candles.slice(i - 240, i)).atr : 0
+  });
+  return simulate(candles, steps, side => side, rr, "mtf-zones", "Зоны · BTCUSD", size, cost);
+}
+
 const text = n => n == null ? "—" : Number(n).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const metric = (name, value) => `<div><small>${name}</small><b>${value}</b></div>`;
 const summary = (result, positionSize, card) => `<article class="backtest-card"><h3>${result.label}</h3><div class="backtest-metrics">`
@@ -235,6 +247,30 @@ export function initBitcoinBacktest(getSettings, workerUrl, onMainApplied = () =
     size <= brokerRules.maxDealSize + 1e-10 &&
     Math.abs((size - brokerRules.minDealSize) / brokerRules.sizeIncrement
       - Math.round((size - brokerRules.minDealSize) / brokerRules.sizeIncrement)) < 1e-6;
+  $("runZoneTest").onclick = async event => {
+    const button = event.currentTarget, status = $("zoneTestStatus"), results = $("zoneTestResult");
+    button.disabled = true;
+    results.innerHTML = "";
+    status.textContent = "Загружаем пятиминутную историю BTCUSD…";
+    try {
+      const size = Number(positionInput.value.trim().replace(",", "."));
+      const cost = Number(costInput.value.trim().replace(",", "."));
+      const rr = Number($("backtestRiskReward").value);
+      if (!(Number.isFinite(size) && size > 0) || (brokerRules && !validBrokerSize(size)))
+        throw new Error("Проверь размер позиции BTC.");
+      if (!Number.isFinite(cost) || cost < 0) throw new Error("Проверь расходы за сделку.");
+      const response = await fetch(workerUrl + "/api/backtest-history?timeframe=5m", { cache: "no-store" });
+      const history = await response.json();
+      if (!response.ok) throw new Error(history.error || "История недоступна.");
+      const candles = history.candles;
+      const result = backtestZones(candles, rr, size, cost);
+      results.innerHTML = summary(result, size);
+      const date = bar => new Date(bar.time * 1000).toLocaleString("ru-RU");
+      status.textContent = (history.stale ? "Сохранённая история. " : "") + date(candles[240]) + " — "
+        + date(candles.at(-1)) + " · входов: " + result.total + " · RR 1:" + rr + " · расходы " + cost + " USD/сделка.";
+    } catch (error) { status.textContent = "Не удалось проверить: " + error.message; }
+    finally { button.disabled = false; }
+  };
   async function loadBrokerRules() {
     try {
       const response = await fetch(workerUrl + "/api/capital-demo/rules", { cache: "no-store" });
