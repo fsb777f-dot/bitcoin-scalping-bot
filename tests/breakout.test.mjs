@@ -26,3 +26,16 @@ test("stop exit accounts for adverse gap and configured BTC size",()=>{
   assert.equal(report.trades[0].exit,94.5);
   assert.equal(report.pnl,-0.11);
 });
+
+test("overlapping scanner and settings requests share one broker login",async()=>{
+  const {BitcoinBreakout}=await import("../worker/breakout.js");
+  const original=globalThis.fetch;
+  let calls=0;
+  globalThis.fetch=async()=>{calls++;return new Response("{}",{headers:{CST:"test","X-SECURITY-TOKEN":"test"}});};
+  try {
+    const object=new BitcoinBreakout({storage:{}},{CAPITAL_API_KEY:"test",CAPITAL_PASSWORD:"test",CAPITAL_IDENTIFIER:"test"});
+    const sessions=await Promise.all(Array.from({length:4},()=>object.fetch(new Request("https://internal/session"))));
+    assert.ok(sessions.every(s=>s.ok));
+    assert.equal(calls,1);
+  } finally {globalThis.fetch=original;}
+});
