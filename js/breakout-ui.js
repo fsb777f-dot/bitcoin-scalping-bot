@@ -19,23 +19,26 @@ export function initBreakout(worker) {
     }));
     if(!rows.length) el(id).textContent="Закрытых сделок пока нет.";
   }
+  let journalVersion;
   function render(s) {
     if(!dirty) {el("Tf").value=s.tf;el("Size").value=s.size;el("Demo").checked=s.demo;}
     initialized=true;
     const p=s.position;
     el("State").textContent=[
       s.tf+" · "+fmt(s.size)+" BTC · DEMO "+(s.demo?"ВКЛ":"ВЫКЛ"),
+      s.bid?"Bid "+fmt(s.bid)+" · Ask "+fmt(s.ask):"",
       s.plan?"Покупка ≥ "+fmt(s.plan.buy)+" · Продажа ≤ "+fmt(s.plan.sell)+" · Стоп "+fmt(s.plan.distance)+" USD":"Ожидание уровней",
       p?p.side+" · "+fmt(p.size)+" BTC · вход "+fmt(p.entry)+" · SL "+fmt(p.sl)+(p.dealId?"":" · ожидается подтверждение"):("Сигнал "+(s.side||"WAIT")+" · позиции нет"),
       s.updated_at?"Обновлено "+date(s.updated_at):"",message(s.error||"")].filter(Boolean).join("\n");
-    list("Log",s.log,r=>Date.parse(r.demo_closed_at));
+    const version=s.log.length+":"+s.log[0]?.dealId;
+    if(version!==journalVersion){list("Log",s.log,r=>Date.parse(r.demo_closed_at));journalVersion=version;}
   }
   async function refresh() {
     try {render(await fetchJson(url));}
     catch(e){el("State").textContent=e.message;}
   }
   for(const key of ["Tf","Size","Demo"]) el(key).oninput=()=>{dirty=true;el("Message").textContent="Изменения ещё не сохранены.";};
-  el("Refresh").onclick=refresh;
+
   el("Save").onclick=async()=>{
     if(!initialized) {await refresh();if(!initialized)return;}
     const pin=prompt("PIN управления DEMO");if(!pin)return;
@@ -58,6 +61,29 @@ export function initBreakout(worker) {
       list("Trades",r.trades,t=>t.closed*1000);
     } catch(e){el("Result").textContent=message(e.message);} finally {el("Test").disabled=false;}
   };
-  document.querySelector('[data-view="breakout"]').addEventListener("click",refresh);
-  setInterval(()=>{if(!document.hidden && !el("State").closest("section").hidden)refresh();},60000);
+  let socket=null,retry;
+  function connect() {
+    clearTimeout(retry);
+    if(document.hidden || el("State").closest("section").hidden) {
+      if(socket) socket.close();
+      socket=null;
+      return;
+    }
+    if(socket) return;
+    const ws=new WebSocket(url.replace(/^http/,"ws")+"/stream");
+    socket=ws;
+    el("Feed").textContent="Подключение…";
+    ws.onmessage=event=>{
+      if(ws!==socket)return;
+      const state=JSON.parse(event.data);
+      render(state);
+      el("Feed").textContent=state.stream==="live" && Date.now()-Date.parse(state.updated_at)<15000?"Прямой эфир":"Ожидание котировки";
+    };
+    ws.onclose=()=>{
+      if(socket!==ws)return;
+      socket=null;el("Feed").textContent="Восстановление связи…";retry=setTimeout(connect,1500);
+    };
+  }
+  new MutationObserver(connect).observe(el("State").closest("section"),{attributes:true,attributeFilter:["hidden"]});
+  document.addEventListener("visibilitychange",connect);
 }
