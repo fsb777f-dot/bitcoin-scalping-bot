@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import worker from "../worker/main-index.js";
+import worker from "../worker/index.js";
 
 test("read-only history endpoint loads 15-minute Capital.com BTCUSD candles", async () => {
   const previousFetch = globalThis.fetch;
