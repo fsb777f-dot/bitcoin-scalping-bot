@@ -85,12 +85,12 @@ function drawChart(id, dates, source) {
 
 // Visual-only cross-system pulse. BTC and Gold are different markets:
 // this describes source direction counts, NEVER an entry recommendation.
-export function computeTerminalPulse(state, gold, btcGpt, goldGpt, test, now = Date.now()) {
+export function computeTerminalPulse(state, gold, breakout, goldGpt, test, now = Date.now()) {
   const states = [
     { label: "Bitcoin", side: state?.scan_ok === false ? null : state?.side, updated: state?.updated_at },
     { label: "Bitcoin AI", side: state?.ai_enabled === true && state?.scan_ok !== false ? state.ai_side : null, updated: state?.updated_at },
     { label: "Gold AI", side: gold?.state?.side, updated: gold?.state?.updated_at },
-    { label: "ЧПТ BTC", side: btcGpt?.state?.side, updated: btcGpt?.state?.updated_at },
+    { label: "Пробой BTC", side: (breakout?.position?.side || breakout?.side || breakout?.state?.side), updated: (breakout?.updated_at || breakout?.state?.updated_at) },
     { label: "ЧПТ Gold", side: goldGpt?.state?.side, updated: goldGpt?.state?.updated_at },
     { label: "Тест", side: test?.state?.signals?.consensus, updated: test?.state?.updated_at }
   ];
@@ -143,7 +143,7 @@ export function initTradingTerminal(supabase, journal) {
 
   function sourceStrip(responses) {
     const pairs = [
-      ["Bitcoin", "bitcoin"], ["Gold", "gold"], ["ЧПТ BTC", "btcGpt"],
+      ["Bitcoin", "bitcoin"], ["Gold", "gold"], ["Пробой BTC", "breakout"],
       ["ЧПТ Gold", "goldGpt"], ["Тест", "test"]
     ];
     $("ttSources").innerHTML = pairs.map(([name, key]) => {
@@ -196,8 +196,8 @@ export function initTradingTerminal(supabase, journal) {
     } else setSignal("ttTest", null, "Тестовый Worker недоступен");
   }
 
-  function updateBrain(state, gold, btcGpt, goldGpt, test) {
-    const pulse = computeTerminalPulse(state, gold, btcGpt, goldGpt, test);
+  function updateBrain(state, gold, breakout, goldGpt, test) {
+    const pulse = computeTerminalPulse(state, gold, breakout, goldGpt, test);
     const orb = $("ttBrain");
     const signal = $("ttBrainSide");
     if (!orb || !signal) return;
@@ -212,7 +212,7 @@ export function initTradingTerminal(supabase, journal) {
       : "Сводка BTC + Gold. Не сигнал для открытия сделки.";
   }
 
-  function quickSummary(state, gold, btcGpt, goldGpt, test) {
+  function quickSummary(state, gold, breakout, goldGpt, test) {
     const results = [];
     const add = (name, side, value, meta = "") => results.push({ name, side: side || "WAIT", value, meta });
     const mainPnl = journal.getMainPnl();
@@ -220,7 +220,7 @@ export function initTradingTerminal(supabase, journal) {
     add("₿ Основной", state?.side, mainPnl == null ? "—" : amount(mainPnl), "PnL · USDT · " + matches);
     add("₿ AI", state?.ai_enabled ? state.ai_side : (state ? "OFF" : "WAIT"), state ? uiText("aiPnl") : "—");
     add("✦ Gold AI", gold?.state?.side, gold?.stats ? amount(gold.stats.pnl) : "—");
-    add("ЧПТ · BTC", btcGpt?.state?.side, btcGpt?.stats ? amount(btcGpt.stats.pnl) : "—");
+    add("Пробой BTC", (breakout?.position?.side || breakout?.side || breakout?.state?.side), breakout?.stats ? amount(breakout.stats.pnl) : "—");
     add("ЧПТ · Gold", goldGpt?.state?.side, goldGpt?.stats ? amount(goldGpt.stats.pnl) : "—");
     const testTrades = (test?.trades || []).filter(t => t.strategy === "consensus" && t.status === "CLOSED");
     const testPnl = testTrades.reduce((sum, trade) => sum + (validNumber(trade.pnl) ? Number(trade.pnl) : 0), 0);
@@ -238,7 +238,7 @@ export function initTradingTerminal(supabase, journal) {
     ).join("");
   }
 
-  function systemCards(state, gold, btcGpt, goldGpt, test) {
+  function systemCards(state, gold, breakout, goldGpt, test) {
     const systems = [];
     const mainPnl = journal.getMainPnl();
     if (!state) systems.push(unavailable("Bitcoin · основной", "Текущий сигнал не загружен"));
@@ -270,8 +270,11 @@ export function initTradingTerminal(supabase, journal) {
         ["Winrate", percent(gold.stats.winrate)], ["PnL · USD / 1 oz", amount(gold.stats.pnl)]],
       footer: "Gold AI · обновлено " + dateText(gold.state?.updated_at)
     }));
+    if (breakout) systems.push(card({title:"Пробой BTC",detail:"Уровни "+breakout.tf,
+      side:breakout.position?.side || breakout.side || "WAIT",
+      metrics:[["Объём BTC",String(breakout.size)],["DEMO",breakout.demo?"ВКЛ":"ВЫКЛ"]],
+      footer:dateText(breakout.updated_at)}));
     for (const [title, data, unit] of [
-      ["ЧПТ · Bitcoin", btcGpt, "1 BTC"],
       ["ЧПТ · Gold", goldGpt, "1 oz"]
     ]) {
       if (!data?.stats) systems.push(unavailable(title, "Отдельный журнал ЧПТ недоступен"));
@@ -332,11 +335,11 @@ export function initTradingTerminal(supabase, journal) {
     }).join("");
   }
 
-  function activities(gold, btcGpt, goldGpt, test, btcTrades) {
+  function activities(gold, breakout, goldGpt, test, btcTrades) {
     const items = [];
     function add(name, rows, unit) {
       for (const trade of (Array.isArray(rows) ? rows : []).slice(0, 20)) {
-        const rawTime = trade.trade_time ?? trade.opened_at ?? trade.closed_at;
+        const rawTime = trade.trade_time ?? trade.demo_closed_at ?? trade.opened_at ?? trade.closed_at;
         const parsedTime = Number(rawTime);
         const millis = Number.isFinite(parsedTime)
           ? (parsedTime < 1e11 ? parsedTime * 1000 : parsedTime)
@@ -348,7 +351,7 @@ export function initTradingTerminal(supabase, journal) {
     add("Bitcoin / AI", (btcTrades || []).filter(t => String(t.trade_key).startsWith("ai:")), "USD / BTC");
     add("Bitcoin / основной", (btcTrades || []).filter(t => String(t.trade_key).startsWith("server:")), "USD / BTC");
     add("Gold AI", gold?.trades, "USD / oz");
-    add("ЧПТ Bitcoin", btcGpt?.trades, "USD / BTC");
+    add("Пробой Bitcoin", breakout?.log, "USD");
     add("ЧПТ Gold", goldGpt?.trades, "USD / oz");
     add("Тест", (test?.trades || []).filter(t => t.strategy === "consensus"), "USD / BTC");
     const sorted = items.sort((a, b) => b.time - a.time).slice(0, 14);
@@ -400,7 +403,7 @@ export function initTradingTerminal(supabase, journal) {
     const reads = {
       bitcoin: readJson(MAIN + "/api/state"),
       gold: readJson(GOLD + "/api/status"),
-      btcGpt: readJson(MAIN + "/api/gpt-strategy"),
+      breakout: readJson(MAIN + "/api/breakout"),
       goldGpt: readJson(GOLD + "/api/gpt-strategy"),
       test: readJson(TEST + "/api/test-data"),
       recent: supabase.from("trades")
@@ -419,11 +422,11 @@ export function initTradingTerminal(supabase, journal) {
       const state = value("bitcoin"), gold = value("gold"), test = value("test");
       sourceStrip(entries);
       signalSummary(state, gold, test);
-      updateBrain(state, gold, value("btcGpt"), value("goldGpt"), test);
-      systemCards(state, gold, value("btcGpt"), value("goldGpt"), test);
-      quickSummary(state, gold, value("btcGpt"), value("goldGpt"), test);
+      updateBrain(state, gold, value("breakout"), value("goldGpt"), test);
+      systemCards(state, gold, value("breakout"), value("goldGpt"), test);
+      quickSummary(state, gold, value("breakout"), value("goldGpt"), test);
       heatmap(state);
-      activities(gold, value("btcGpt"), value("goldGpt"), test, value("recent"));
+      activities(gold, value("breakout"), value("goldGpt"), test, value("recent"));
       $("ttFooter").textContent = "Обновлено " + new Date().toLocaleString("ru-RU")
         + ". Данные приходят из действующих журналов, без управления ордерами и настройками. "
         + "Графики показывают закрытые 5m свечи. PnL нормирован на 1 BTC либо 1 унцию золота; "
