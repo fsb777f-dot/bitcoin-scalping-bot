@@ -39,3 +39,18 @@ test("overlapping scanner and settings requests share one broker login",async()=
     assert.equal(calls,1);
   } finally {globalThis.fetch=original;}
 });
+
+test("a live quote can trigger inside the minute with DEMO off; old ticks cannot reverse it",async()=>{
+  const {BitcoinBreakout}=await import("../worker/breakout.js");
+  const bot=new BitcoinBreakout({storage:{}},{});
+  const now=Date.now();
+  bot.planUntil=now+30000;
+  bot.state={demo:false,plan:{buy:101,sell:98,distance:2},position:null};
+  await bot.onQuote({timestamp:now,bid:101,ofr:101.5});
+  assert.equal(bot.state.side,"BUY");
+  await bot.onQuote({timestamp:now-1,bid:97,ofr:97.5});
+  assert.equal(bot.state.side,"BUY");
+  await bot.onQuote({timestamp:now+1,bid:97,ofr:97.5});
+  assert.equal(bot.state.side,"SELL");
+  assert.equal(bot.state.position,null);
+});

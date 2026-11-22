@@ -822,6 +822,8 @@ export default {
       return env.BTC_LEARNING.get(env.BTC_LEARNING.idFromName("main")).fetch("https://learning/status");
     }
     if (url.pathname === "/health") return reply({ ok: true, service: "bitcoin-scalping-server", btcProfitStopVersion: 2, mode: "VIRTUAL_ONLY" });
+    if (url.pathname === "/api/breakout/stream" && request.headers.get("Upgrade")?.toLowerCase()==="websocket")
+      return breakout(env).fetch("https://breakout/stream",{headers:{Upgrade:"websocket"}});
     if (url.pathname === "/api/breakout/backtest" && request.method === "GET") {
       const tf=url.searchParams.get("tf"), size=Number(url.searchParams.get("size"));
       if (!Object.hasOwn(periods,tf) || !(Number.isFinite(size) && size>0)) return reply({error:"Проверьте период и объём BTC"},400);
