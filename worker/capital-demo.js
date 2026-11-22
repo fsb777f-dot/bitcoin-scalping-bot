@@ -24,25 +24,7 @@ async function request(path, headers = {}, init = {}) {
 }
 
 export async function capitalDemoStatus(env) {
-  if (!env.CAPITAL_API_KEY || !env.CAPITAL_IDENTIFIER || !env.CAPITAL_PASSWORD) {
-    throw new Error("Capital.com secrets are incomplete");
-  }
-
-  const session = await request("/session", { "X-CAP-API-KEY": env.CAPITAL_API_KEY }, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      identifier: env.CAPITAL_IDENTIFIER,
-      password: env.CAPITAL_PASSWORD,
-      encryptedPassword: false
-    })
-  });
-
-  const cst = session.headers.get("CST");
-  const security = session.headers.get("X-SECURITY-TOKEN");
-  if (!cst || !security) throw new Error("Capital.com Demo session tokens were not returned");
-
-  const auth = { CST: cst, "X-SECURITY-TOKEN": security };
+  const auth = await capitalDemoAuth(env);
   const [accountsResult, marketsResult, detailsResult] = await Promise.all([
     request("/accounts", auth),
     request("/markets?searchTerm=Bitcoin", auth),
@@ -157,6 +139,15 @@ export async function capitalDemoMarketBundle(env) {
 
 
 export async function capitalDemoAuth(env) {
+  if (!env.BTC_BREAKOUT) return createCapitalSession(env);
+  const sessions = env.BTC_BREAKOUT.get(env.BTC_BREAKOUT.idFromName("capital-session"));
+  const response = await sessions.fetch("https://internal/session");
+  const data = await response.json();
+  if (!response.ok) throw Error(data.error || "Сессия Capital.com временно недоступна");
+  return data;
+}
+
+export async function createCapitalSession(env) {
   if (!env.CAPITAL_API_KEY || !env.CAPITAL_IDENTIFIER || !env.CAPITAL_PASSWORD) {
     throw new Error("Capital.com Demo secrets are incomplete");
   }

@@ -1,4 +1,4 @@
-import {capitalDemoAuth,capitalDemoMarketData,capitalDemoInstrumentRules,capitalDemoOpenPosition,
+import {createCapitalSession,capitalDemoAuth,capitalDemoMarketData,capitalDemoInstrumentRules,capitalDemoOpenPosition,
   confirmBtcDemoOpen,capitalDemoUpdatePosition,capitalDemoReconcile} from "./capital-demo.js";
 import {frames,levels,periods,signal,trail} from "./breakout-engine.js";
 
@@ -11,6 +11,15 @@ export class BitcoinBreakout {
     return task;
   }
   async handle(req) {
+    if (new URL(req.url).pathname === "/session") {
+      // Internal named object serializes logins across scanner, UI and backtests.
+      if (this.session && Date.now() < this.expires) return Response.json(this.session);
+      try {
+        this.session=await createCapitalSession(this.env);
+        this.expires=Date.now()+4*60000;
+        return Response.json(this.session);
+      } catch(e) { return Response.json({error:e.message},{status:503}); }
+    }
     const state=await this.store.get("state") || initial();
     const save=()=>this.store.put("state",state);
     const path=new URL(req.url).pathname;

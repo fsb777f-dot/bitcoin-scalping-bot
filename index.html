@@ -140,9 +140,9 @@
 <div class="card"><label>Период уровней <select id="boTf"><option>1m</option><option>5m</option><option>15m</option></select></label>
 <label>Размер позиции, BTC <input id="boSize" type="number" inputmode="decimal" step="0.0001" min="0.0001" value="0.0005"></label>
 <label><input type="checkbox" id="boDemo"> Capital.com DEMO</label>
-<button type="button" id="boSave">Сохранить настройки</button></div>
+<button type="button" id="boSave">Сохранить настройки</button><p id="boMessage" role="status"></p></div>
 <h3>Серверный сканер</h3><p id="boState" style="white-space:pre-line" aria-live="polite"></p>
-<button type="button" id="boRefresh">Обновить</button><p id="boMessage" role="status"></p>
+<button type="button" id="boRefresh">Обновить</button>
 <h3>Последние закрытия DEMO</h3><div id="boLog"></div>
 <h3>Бэктест BTCUSD</h3><p>До 1000 минут Capital.com. Расчёт по выбранному периоду и объёму. Вход по Bid/Ask на закрытии минуты, стоп проверяется внутри следующей свечи. Спред учтён, финансирование и задержка исполнения не моделируются.</p>
 <button type="button" id="boTest">Проверить на истории</button>
