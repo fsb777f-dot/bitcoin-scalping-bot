@@ -1,3 +1,5 @@
+export { BitcoinLearning } from "./learning.js";
+import { learningPage } from "./learning-page.js";
 import { btcProfitStop } from "../js/btc-profit-stop.js";
 import { buildContext } from "../js/indicators.js";
 import { candleMomentum, momentumConfirms } from "../js/momentum-filter.js";
@@ -395,7 +397,7 @@ function demoDollarProfitStop(trade, quote, update, minimumGap) {
   if (update && sign * (update.sl - sl) >= 0 && sign * (quote - update.sl) > minimumGap) return update;
   return { ...update, sl, trailing_active: true };
 }
-async function updateOpenTrades(env, bid, ask, completedCandle = null, newCandle = false) {
+async function updateOpenTrades(env, bid, ask, completedCandle = null, newCandle = false, learningEvents = []) {
   const open = await readOpenTrades(env);
   const spread = Math.max(0, Number(ask) - Number(bid));
   for (const t of open || []) {
@@ -408,13 +410,18 @@ async function updateOpenTrades(env, bid, ask, completedCandle = null, newCandle
     if (![price, entry, currentStop, risk].every(Number.isFinite) || risk <= 0) continue;
     const buy = t.side === "BUY";
     const hit = buy ? price <= currentStop : price >= currentStop;
+    const observation = t.execution_mode === "VIRTUAL" && t.trade_key.startsWith("server:")
+      ? {type:"quote", key:t.trade_key, move:(buy ? 1 : -1)*(price-entry), stop:currentStop} : null;
+    if (observation) learningEvents.push(observation);
     if (!isDemo && hit) {
       const exit = virtualStopFill(t.side, currentStop, price);
       const pnl = virtualSettledPnl(t, exit);
+      const reason = t.partial_exit_price != null ? "HALF_TRAILING_STOP" : t.trailing_active ? "TRAILING_STOP" : "SL";
       await patchTrade(env, t.trade_key, {
         exit, pnl, status: "CLOSED",
-        result: t.partial_exit_price != null ? "HALF_TRAILING_STOP" : t.trailing_active ? "TRAILING_STOP" : "SL"
+        result: reason
       });
+      if (observation) Object.assign(observation, {type:"close", pnl, reason});
       continue;
     }
     // Already half-closed legacy trades keep their accounting and old trailing.
@@ -455,6 +462,7 @@ async function updateOpenTrades(env, bid, ask, completedCandle = null, newCandle
       // Do not write experimental helper fields to Supabase's existing trade schema.
       await patchTrade(env, t.trade_key, preset.applied
         ? { sl: nextStop, trailing_active: true } : update);
+      if (observation) observation.stop = nextStop;
     }
   }
 }
@@ -536,7 +544,7 @@ function aiDecision(results, enabled, performance) {
     : "AI выбрал " + selected.length + " стратегий; доля взвешенных голосов " + confidence + "%.";
   return { side, count: selected.length, confidence, buy_weight: Number(buyWeight.toFixed(2)), sell_weight: Number(sellWeight.toFixed(2)), selected, excluded, reason, performance };
 }
-async function runScan(env) {
+async function runScan(env, learningEvents) {
   if (!env.SUPABASE_SECRET_KEY) throw new Error("Set SUPABASE_SECRET_KEY in Worker secrets");
   const settings = await getSettings(env);
   const previousState = await getPreviousState(env);
@@ -566,7 +574,7 @@ async function runScan(env) {
     // A broker-history failure must not cause journal rows to be guessed closed.
     console.error("Capital.com DEMO journal sync failed", error?.message || String(error));
   }
-  await updateOpenTrades(env, market.bid, market.ask, candle, newCandle);
+  await updateOpenTrades(env, market.bid, market.ask, candle, newCandle, learningEvents);
   let performance = [];
   if (settings.aiEnabled) {
     try {
@@ -635,6 +643,10 @@ async function runScan(env) {
     // A DEMO toggle must never suspend the main virtual journal.
     try {
       await insertTradeOnce(env, virtual);
+      learningEvents.push({type:"entry",key:virtual.trade_key,side:normalSide,entry:normalEntry,
+        stop:normalSl,risk:slDistance,spread:market.ask-market.bid,names:virtual.confirmations,required,
+        size:settings.appliedRisk?.positionSize ?? settings.tradeSize ?? 0.0005,
+        cost:settings.appliedRisk?.simulatedTradeCostUsd ?? 0});
     } catch (error) {
       executionError = "Основной виртуальный: " + (error?.message || String(error));
       console.error("Main virtual trade insert failed", executionError);
@@ -728,7 +740,8 @@ async function runScan(env) {
 
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runScan(env).catch(async error => {
+    const events = [];
+    ctx.waitUntil(runScan(env, events).catch(async error => {
       const detail = error?.message || String(error);
       console.error("Scheduled scan failed", {
         name: error?.name || null,
@@ -744,11 +757,43 @@ export default {
       } catch (e) {
         console.error("Failed to save scan error: " + (e?.message || String(e)));
       }
+    }).finally(async () => {
+      if (!env.BTC_LEARNING) return;
+      const ledger = env.BTC_LEARNING.get(env.BTC_LEARNING.idFromName("main"));
+      // Recover closed samples if a previous delivery failed or scans overlapped.
+      if (Math.floor(event.scheduledTime / 60000) % 60 === 0) {
+        try {
+          const pending = await (await ledger.fetch("https://learning/pending")).json();
+          for (let i = 0; i < pending.length; i += 40) {
+            const keys = pending.slice(i,i+40);
+            const rows = await db(env,"trades?select=trade_key,status,sl,pnl,result,updated_at&trade_key=in.("
+              + keys.map(encodeURIComponent).join(",") + ")");
+            const seen = new Set(rows.map(r=>r.trade_key));
+            for (const r of rows) if (r.status === "CLOSED" && r.pnl != null)
+              events.push({type:"close",key:r.trade_key,stop:Number(r.sl),move:0,pnl:Number(r.pnl),
+                reason:r.result,closedAt:Date.parse(r.updated_at)});
+            for (const key of keys) if (!seen.has(key)) events.push({type:"missing",key});
+          }
+        } catch (error) { console.error("BTC learning reconciliation",error.message); }
+      }
+      const body = JSON.stringify({time:event.scheduledTime,events});
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await ledger.fetch("https://learning/record",{method:"POST",body});
+          if (response.ok) return;
+          throw Error("HTTP " + response.status);
+        } catch (error) { console.error("BTC learning record",error.message); }
+      }
     }));
   },
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
+    if (url.pathname === "/learning") return new Response(learningPage,{headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store"}});
+    if (url.pathname === "/api/learning" && request.method === "GET") {
+      if (!env.BTC_LEARNING) return reply({error:"Хранилище обучения недоступно"},503);
+      return env.BTC_LEARNING.get(env.BTC_LEARNING.idFromName("main")).fetch("https://learning/status");
+    }
     if (url.pathname === "/health") return reply({ ok: true, service: "bitcoin-scalping-server", btcProfitStopVersion: 2, mode: "VIRTUAL_ONLY" });
     if (url.pathname === "/gpt-strategy") return new Response(gptStrategyPage, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     if (url.pathname === "/api/gpt-strategy" && request.method === "GET") {

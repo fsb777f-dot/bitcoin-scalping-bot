@@ -4,3 +4,12 @@ compatibility_date = "2026-11-08"
 
 [triggers]
 crons = ["* * * * *"]
+
+
+[[durable_objects.bindings]]
+name = "BTC_LEARNING"
+class_name = "BitcoinLearning"
+
+[[migrations]]
+tag = "btc-learning-v1"
+new_sqlite_classes = ["BitcoinLearning"]
