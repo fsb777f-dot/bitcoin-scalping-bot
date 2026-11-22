@@ -198,7 +198,7 @@ export function capitalDemoCloseEvent(trade, activities) {
   }).sort((a, b) => String(b.dateUTC || b.date || "").localeCompare(String(a.dateUTC || a.date || "")))[0] || null;
 }
 
-export async function capitalDemoReconcile(env, trades, sharedAuth) {
+export async function capitalDemoReconcile(env, trades, sharedAuth, patchTrade = dbPatchTrade) {
   const auth = sharedAuth || await capitalDemoAuth(env);
   const result = await request("/positions", auth);
   const positions = Array.isArray(result.data?.positions) ? result.data.positions : [];
@@ -235,14 +235,14 @@ export async function capitalDemoReconcile(env, trades, sharedAuth) {
     summary.checked++;
     if (trade.status === "CLOSED") {
       const settlement = capitalDemoSettlement(trade, await getTransactions(), finiteBrokerNumber(trade.exit));
-      if (settlement.pnl !== null) await dbPatchTrade(env, trade.trade_key, settlement);
+      if (settlement.pnl !== null) await patchTrade(env, trade.trade_key, settlement);
       else summary.unresolved++;
       continue;
     }
     const live = openById.get(dealId);
     if (live) {
       const snapshot = capitalDemoPositionSnapshot(live);
-      await dbPatchTrade(env, trade.trade_key, { capital_status: "OPEN", ...snapshot });
+      await patchTrade(env, trade.trade_key, { capital_status: "OPEN", ...snapshot });
       summary.stillOpen++;
       continue;
     }
@@ -252,7 +252,7 @@ export async function capitalDemoReconcile(env, trades, sharedAuth) {
     const closingTransaction = capitalDemoTradeTransaction(trade, await getTransactions());
     if (closingTransaction && /clos(e|ed)/i.test(closingTransaction.note || "")) {
       const time = closingTransaction.dateUtc || closingTransaction.date || new Date().toISOString();
-      await dbPatchTrade(env, trade.trade_key, {
+      await patchTrade(env, trade.trade_key, {
         status: "CLOSED", result: "BROKER_CLOSED", capital_status: "CLOSED", demo_open_pnl: null,
         demo_closed_at: /(?:Z|[+-]\d\d:\d\d)$/.test(time) ? time : time + "Z",
         ...capitalDemoSettlement(trade, [closingTransaction])
@@ -277,7 +277,7 @@ export async function capitalDemoReconcile(env, trades, sharedAuth) {
     if (!closeEvent) {
       // A missing live position is not an OPEN position, but neither is it
       // proof of a settled trade. Flag it without inventing an exit or PnL.
-      await dbPatchTrade(env, trade.trade_key, { capital_status: "RECONCILE_PENDING", demo_open_pnl: null });
+      await patchTrade(env, trade.trade_key, { capital_status: "RECONCILE_PENDING", demo_open_pnl: null });
       summary.unresolved++;
       continue;
     }
@@ -289,7 +289,7 @@ export async function capitalDemoReconcile(env, trades, sharedAuth) {
       ?? closeEvent.details?.level ?? closeEvent.details?.price ?? closeEvent.level);
     const settlement = capitalDemoSettlement(trade, await getTransactions(), closePrice);
     const time = closeEvent.dateUTC || closeEvent.date || new Date().toISOString();
-    await dbPatchTrade(env, trade.trade_key, {
+    await patchTrade(env, trade.trade_key, {
       status: "CLOSED",
       result: closeReason,
       capital_status: "CLOSED",

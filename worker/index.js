@@ -6,8 +6,9 @@ import { candleMomentum, momentumConfirms } from "../js/momentum-filter.js";
 import { backtestBreakevenTrailUpdate, backtestHybridTrailUpdate } from "../js/backtest-risk.js";
 import { exitProfileOfTrade, tradeWithExitProfile, validBacktestExit,
   validGlobalBacktestPreset } from "./trade-preset.js";
-import { runGptScan, gptStatus } from "./gpt-strategy.js";
-import { gptStrategyPage } from "./gpt-strategy-page.js";
+export { BitcoinBreakout } from "./breakout.js";
+import { periods, simulate } from "./breakout-engine.js";
+const breakout = env => env.BTC_BREAKOUT.get(env.BTC_BREAKOUT.idFromName("bitcoin"));
 import { strategies, names } from "../strategies/index.js";
 import { capitalDemoStatus, capitalDemoMarketData, capitalDemoMarketBundle, capitalDemoInstrumentRules, capitalDemoOpenPosition, confirmBtcDemoOpen, capitalDemoUpdatePosition, capitalDemoReconcile, capitalDemoAuth } from "./capital-demo.js";
 import { virtualPartialUpdate, virtualTargetTrailUpdate, virtualSettledPnl, virtualStopFill, spreadSafeStopDistance } from "./partial-profit.js";
@@ -730,16 +731,14 @@ async function runScan(env, learningEvents) {
     })),
     market_source: source, bid: market.bid, ask: market.ask, spread: market.spread, scan_ok: true, last_error: executionError
   });
-  // The GPT paper test runs after the classic/AI state is saved and cannot interrupt it.
-  try {
-    const gptMarket = settings.timeframe === "5m" ? market : await capitalDemoMarketData(env, "5m", sharedAuth);
-    await runGptScan(db.bind(null, env), gptMarket, "btc_gpt");
-  } catch (error) { console.error("Bitcoin GPT 5m test failed:", error?.message || String(error)); }
   return { ok: true, price, normalSide, aiSide, activeCount, required, source, aiEnabled: settings.aiEnabled };
 }
 
 export default {
   async scheduled(event, env, ctx) {
+    ctx.waitUntil(breakout(env).fetch("https://breakout/tick").then(async response=>{
+      if(!response.ok) console.error("Breakout scan",await response.text());
+    }));
     const events = [];
     ctx.waitUntil(runScan(env, events).catch(async error => {
       const detail = error?.message || String(error);
@@ -795,10 +794,22 @@ export default {
       return env.BTC_LEARNING.get(env.BTC_LEARNING.idFromName("main")).fetch("https://learning/status");
     }
     if (url.pathname === "/health") return reply({ ok: true, service: "bitcoin-scalping-server", btcProfitStopVersion: 2, mode: "VIRTUAL_ONLY" });
-    if (url.pathname === "/gpt-strategy") return new Response(gptStrategyPage, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
-    if (url.pathname === "/api/gpt-strategy" && request.method === "GET") {
-      try { return reply(await gptStatus(db.bind(null, env), "btc_gpt")); }
-      catch (error) { return reply({ error: error?.message || String(error) }, 503); }
+    if (url.pathname === "/api/breakout/backtest" && request.method === "GET") {
+      const tf=url.searchParams.get("tf"), size=Number(url.searchParams.get("size"));
+      if (!Object.hasOwn(periods,tf) || !(Number.isFinite(size) && size>0)) return reply({error:"Проверьте период и объём BTC"},400);
+      try {
+        const market=await capitalDemoMarketData(env,"1m",null,null,1000);
+        return reply(simulate(market.candles,tf,size));
+      } catch(e) {return reply({error:e.message},502);}
+    }
+    if (url.pathname === "/api/breakout") {
+      const post=request.method==="POST";
+      if (!post && request.method!=="GET") return reply({error:"Method not allowed"},405);
+      if (post && (!env.EXECUTION_CONTROL_PIN || request.headers.get("X-Execution-Control")!==env.EXECUTION_CONTROL_PIN))
+        return reply({error:"Нужен PIN управления DEMO"},401);
+      const response=await breakout(env).fetch("https://breakout/"+(post?"settings":"status"),
+        post?{method:"POST",body:await request.text()}:{});
+      return reply(await response.json(),response.status);
     }
     if (url.pathname === "/api/capital-demo/status" && request.method === "GET") {
       try { return reply(await capitalDemoStatus(env)); }

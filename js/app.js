@@ -1,7 +1,7 @@
 import{createMarketChart}from"./chart.js";
 import{createJournal}from"./journal.js";
 import{initBitcoinBacktest}from"./backtest.js";
-import { initGptStrategyUi } from "./gpt-strategy-ui.js";
+import { initBreakout } from "./breakout-ui.js";
 import { initTradingTerminal } from "./terminal.js";
 import{names}from"../strategies/index.js";
 import{supabase}from"./supabase.js";
@@ -13,7 +13,7 @@ let aiJournalLoading=false,demoJournalLoading=false,demoRows=[],demoShown=50;
 let momentumEnabled=false,aiMomentumEnabled=false,momentumReady=false;
 const safe=s=>String(s??"—").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
 const journal=createJournal(supabase);
-initGptStrategyUi(WORKER);
+initBreakout(WORKER);
 const terminal=initTradingTerminal(supabase,journal);
 const defaults=()=>({timeframe:"1m",enabled_strategies:names.map(()=>true),consensus_enabled:true,required_matches:3,risk_reward:2,ai_enabled:false,execution_mode:"VIRTUAL",trade_size:null});
 function status(ok){$("connection").innerHTML='<i class="dot '+(ok?"green":"red")+'"></i> '+(ok?"TradingView график":"График не загрузился")}
