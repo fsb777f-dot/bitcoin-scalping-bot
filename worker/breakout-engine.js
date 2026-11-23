@@ -47,6 +47,35 @@ export function trail(p, bar) {
   return buy ? Math.max(p.sl,candidate) : Math.min(p.sl,candidate);
 }
 
+export function updatePaper(book, bar, next, timestamp, settings) {
+  const p = book.position;
+  if (!p) {
+    if (!next || timestamp < (book.nextEntry || 0) || timestamp <= (book.lastClose || 0)) return false;
+    book.position = {...next, size:settings.size, tf:settings.tf, opened:timestamp};
+    book.nextEntry = timestamp + 5000;
+    return true;
+  }
+  if (timestamp < p.opened) return false;
+  const buy = p.side === "BUY";
+  const exit = buy ? bar.bidClose : bar.askClose;
+  if (buy ? exit <= p.sl : exit >= p.sl) {
+    const pnl = (exit - p.entry) * p.size * (buy ? 1 : -1);
+    book.log.unshift({...p, exit, pnl, closed:timestamp});
+    book.log.length = Math.min(100, book.log.length);
+    book.closed++;
+    if (pnl > 0) book.wins++;
+    if (pnl < 0) book.losses++;
+    book.pnl += pnl;
+    book.position = null;
+    book.lastClose = timestamp;
+    return true;
+  }
+  const sl = trail(p, bar);
+  if (sl === p.sl) return false;
+  p.sl = sl;
+  return true;
+}
+
 export function simulate(minutes, tf, size) {
   const history=frames(minutes,tf);
   let index=0, position=null, equity=0, peak=0, drawdown=0;

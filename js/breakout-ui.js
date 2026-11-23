@@ -19,10 +19,34 @@ export function initBreakout(worker) {
     }));
     if(!rows.length) el(id).textContent="Закрытых сделок пока нет.";
   }
+  let paperVersion;
+  function renderPaper(s) {
+    const book=s.paper;
+    if(!el("PaperPosition")) return;
+    if(!book) {el("PaperPosition").textContent="Ожидание первой котировки виртуального журнала.";return;}
+    const p=book.position;
+    const mark=p?.side==="BUY"?s.bid:s.ask;
+    el("PaperPosition").textContent=p
+      ? p.side+" · "+p.tf+" · "+fmt(p.size)+" BTC · вход "+fmt(p.entry)+" · SL "+fmt(p.sl)
+        +" · результат "+fmt((mark-p.entry)*p.size*(p.side==="BUY"?1:-1))+" USD"
+      : "Открытой виртуальной позиции нет.";
+    if(paperVersion===book.closed) return;
+    paperVersion=book.closed;
+    el("PaperStats").textContent="Закрыто "+book.closed+" · в плюс "+book.wins+" · в минус "+book.losses
+      +" · винрейт "+(book.closed?fmt(100*book.wins/book.closed)+"%":"—")+" · итог "+fmt(book.pnl)+" USD";
+    el("PaperLog").replaceChildren(...book.log.map(t=>{
+      const row=document.createElement("p");
+      row.textContent=date(t.opened)+" → "+date(t.closed)+" · "+t.side+" · "+t.tf+" · "+fmt(t.size)
+        +" BTC · вход "+fmt(t.entry)+" → выход "+fmt(t.exit)+" · "+fmt(t.pnl)+" USD";
+      return row;
+    }));
+    if(!book.log.length) el("PaperLog").textContent="Закрытых виртуальных сделок пока нет.";
+  }
   let journalVersion;
   function render(s) {
     if(!dirty) {el("Tf").value=s.tf;el("Size").value=s.size;el("Demo").checked=s.demo;}
     initialized=true;
+    renderPaper(s);
     const p=s.position;
     el("State").textContent=[
       s.tf+" · "+fmt(s.size)+" BTC · DEMO "+(s.demo?"ВКЛ":"ВЫКЛ"),

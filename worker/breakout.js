@@ -1,6 +1,6 @@
 import {createCapitalSession,capitalDemoAuth,capitalDemoMarketData,capitalDemoInstrumentRules,capitalDemoOpenPosition,
   confirmBtcDemoOpen,capitalDemoUpdatePosition,capitalDemoReconcile} from "./capital-demo.js";
-import {frames,levels,periods,signal,trail} from "./breakout-engine.js";
+import {frames,levels,periods,signal,trail,updatePaper} from "./breakout-engine.js";
 
 const initial=()=>({tf:"1m",size:0.0005,demo:false,position:null,plan:null,minute:0,log:[]});
 export class BitcoinBreakout {
@@ -136,6 +136,14 @@ export class BitcoinBreakout {
     s.bid=q.bid;s.ask=q.ofr;s.updated_at=new Date(q.timestamp).toISOString();s.stream="live";
     const bar={bidClose:q.bid,askClose:q.ofr};
     const save=()=>this.store.put("state",s);
+    const paper=s.paper ||= {position:null, log:[], closed:0, wins:0, losses:0, pnl:0};
+    let next=null;
+    if(!paper.position || !s.position) {
+      try { await this.refreshPlan(s); }
+      catch(e) { s.error=e.message; }
+      if(this.planUntil>Date.now() && Date.now()-q.timestamp<15000) next=signal(s.plan,bar);
+    }
+    if(updatePaper(paper,bar,next,q.timestamp,s)) await save();
     if(s.position) {
       const p=s.position;
       const hit=p.side==="BUY"?q.bid<=p.sl:q.ofr>=p.sl;
@@ -154,16 +162,12 @@ export class BitcoinBreakout {
         }
       }
     } else {
-      await this.refreshPlan(s);
-      if(this.planUntil>Date.now() && Date.now()-q.timestamp<15000) {
-        const next=signal(s.plan,bar);
-        s.side=next?.side||"WAIT";
-        if(s.demo && next && !(this.entryAfter>now)) {
-          this.entryAfter=now+5000;
-          await this.open(s,next,q,save);
-          await save();
-        }
-      } else s.side="WAIT";
+      s.side=next?.side||"WAIT";
+      if(s.demo && next && !(this.entryAfter>now)) {
+        this.entryAfter=now+5000;
+        await this.open(s,next,q,save);
+        await save();
+      }
     }
     this.broadcast();
   }
